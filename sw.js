@@ -1,6 +1,6 @@
 // 離線支援：網路優先，失敗時改用快取
-const CACHE = 'arcanum-v1';
-const SHELL = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/fx.js', 'js/scenes.js', 'js/data.js', 'icon.svg', 'manifest.json'];
+const CACHE = 'arcanum-v2';
+const SHELL = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/fx.js', 'js/scenes.js', 'js/data.js', 'js/world.js', 'icon.svg', 'manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

@@ -16,7 +16,7 @@ const ic = k => `<i class="ic ${k}"></i>`;
 const fresh = () => ({
   v: 1, profile: { name: '', house: '' }, xp: 0, coins: 0, gems: 0, tickets: 0,
   talentPts: 0, talents: {}, tasks: [], ideas: [], rewards: structuredClone(DEFAULT_REWARDS), bag: [],
-  cards: {}, ach: {}, timer: null, sound: true,
+  cards: {}, ach: {}, timer: null, sound: true, world: { day: '', coins: [], dummies: [], chest: false },
   stats: { done: 0, coinsEarned: 0, packs: 0, streak: 0, best: 0, lastDone: '', redeemed: 0, ideas: 0 },
 });
 let S = fresh();
@@ -248,7 +248,7 @@ function openPack(pid, btn) {
 }
 
 // ---------- 畫面 ----------
-const TABS = [['quests', '任務', '📜'], ['ideas', '思緒瓶', '💭'], ['shop', '獎勵', '🏪'], ['cards', '卡牌', '🎴'], ['ach', '挑戰', '🏆'], ['profile', '檔案', '🧙']];
+const TABS = [['quests', '任務', '📜'], ['world', '世界', '🏰'], ['ideas', '思緒瓶', '💭'], ['shop', '獎勵', '🏪'], ['cards', '卡牌', '🎴'], ['ach', '挑戰', '🏆'], ['profile', '檔案', '🧙']];
 const orn = t => `<h2 class="orn"><span>${t}</span></h2>`;
 
 function hud() {
@@ -383,6 +383,37 @@ function vProfile() {
   </div>`;
 }
 
+function worldDay() { if (!S.world || S.world.day !== today()) S.world = { day: today(), coins: [], dummies: [], chest: false }; return S.world; }
+function vWorld() {
+  const w = worldDay();
+  return `${orn('學院世界')}
+  <div class="world-hero"><div class="wh-in">
+    <h3>奧術學院・黃昏庭院</h3>
+    <p>走進可以自由探索的 3D 世界：在庭院練習咒語、到森林裡尋找散落的金幣，或是找出藏在立石陣裡的寶箱。</p>
+    <div class="loot"><span>${ic('coins')} 金幣 ${w.coins.length} / 20</span><span>🎯 訓練假人 ${w.dummies.length} / 3</span><span>🧰 寶箱 ${w.chest ? 1 : 0} / 1</span></div>
+    <button class="btn gold big" data-act="enter-world">⚔ 進入世界</button>
+    <small>世界獎勵每天重置一次。之後會陸續增加新的地圖與玩法。</small>
+  </div></div>
+  <h3 class="sec">操作方式</h3>
+  <div class="grid keys"><div><b>WASD</b><small>移動</small></div><div><b>滑鼠</b><small>轉動視角</small></div><div><b>Shift</b><small>奔跑</small></div><div><b>空白鍵</b><small>跳躍</small></div>
+    <div><b>左鍵 / F</b><small>基礎咒</small></div><div><b>Q</b><small>漂浮咒（傷害加倍）</small></div><div><b>E</b><small>烈焰咒</small></div><div><b>手機</b><small>左搖桿＋右側拖曳</small></div></div>`;
+}
+let inWorld = false;
+async function enterWorld() {
+  if (inWorld) return; inWorld = true;
+  const w = worldDay(), ups = [], give = (r, msg) => { ups.push(...grant(r)); save(); toast(msg, 1800); };
+  try {
+    const { openWorld } = await import('./world.js');
+    await openWorld({
+      color: HOUSES[S.profile.house].color, done: w, toast, sound: FX.sound,
+      onCoin: id => { w.coins.push(id); give({ coins: 2, xp: 1 }, `${ic('coins')} +2 金幣`); },
+      onDummy: id => { w.dummies.push(id); give({ coins: 10, xp: 8 }, `🎯 擊倒假人　${ic('coins')} +10　XP +8`); },
+      onChest: () => { w.chest = true; give({ coins: 20, gems: 1, xp: 15 }, `🧰 發現寶箱！${ic('coins')} +20　${ic('gems')} +1`); },
+    });
+  } catch (e) { console.error(e); document.getElementById('world')?.remove(); toast('⚠️ 無法載入 3D 世界（需要網路連線與支援 WebGL 的瀏覽器）', 4000); }
+  inWorld = false; save(); render(); ups.forEach(l => enqueue(() => levelUp(l).then(render))); checkAch();
+}
+
 function vOnboard() {
   const h = HOUSES[obHouse];
   return `<div class="onboard"><div class="ob-l">
@@ -394,7 +425,7 @@ function vOnboard() {
   </div><div class="ob-r"><div class="stage" id="ob3d"></div></div></div>`;
 }
 
-const views = { quests: vQuests, ideas: vIdeas, shop: vShop, cards: vCards, ach: vAch, profile: vProfile };
+const views = { quests: vQuests, world: vWorld, ideas: vIdeas, shop: vShop, cards: vCards, ach: vAch, profile: vProfile };
 function render() {
   if (!S.profile.house) {
     app.innerHTML = vOnboard();
@@ -410,6 +441,7 @@ function render() {
 // ---------- 事件 ----------
 const acts = {
   tab: el => { tab = el.dataset.tab; render(); scrollTo(0, 0); },
+  'enter-world': () => enterWorld(),
   'ov-close': () => $('#overlay')._close?.(),
   'ob-house': el => { obHouse = el.dataset.v; const n = $('#f-onboard input')?.value; render(); if (n) $('#f-onboard input').value = n; FX.sound('flip'); },
   'd-cat': el => { draft.cat = el.dataset.v; keepForm(); },
