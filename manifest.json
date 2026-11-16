@@ -1,0 +1,16 @@
+{
+  "name": "奧術學院 · 任務之書",
+  "short_name": "任務之書",
+  "description": "魔法學院主題的遊戲化任務整理器",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a1216",
+  "theme_color": "#0a1216",
+  "lang": "zh-Hant",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
