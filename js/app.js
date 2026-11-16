@@ -16,7 +16,7 @@ const ic = k => `<i class="ic ${k}"></i>`;
 const fresh = () => ({
   v: 1, profile: { name: '', house: '' }, xp: 0, coins: 0, gems: 0, tickets: 0,
   talentPts: 0, talents: {}, tasks: [], ideas: [], rewards: structuredClone(DEFAULT_REWARDS), bag: [],
-  cards: {}, ach: {}, timer: null, sound: true, world: { day: '', coins: [], dummies: [], chest: false },
+  cards: {}, ach: {}, timer: null, sound: true, world: { day: '', coins: [], dummies: [], chest: false, kills: 0, prof: [] },
   stats: { done: 0, coinsEarned: 0, packs: 0, streak: 0, best: 0, lastDone: '', redeemed: 0, ideas: 0 },
 });
 let S = fresh();
@@ -383,20 +383,20 @@ function vProfile() {
   </div>`;
 }
 
-function worldDay() { if (!S.world || S.world.day !== today()) S.world = { day: today(), coins: [], dummies: [], chest: false }; return S.world; }
+function worldDay() { if (!S.world || S.world.day !== today()) S.world = { day: today(), coins: [], dummies: [], chest: false, kills: 0, prof: [] }; S.world.kills ??= 0; S.world.prof ??= []; return S.world; }
 function vWorld() {
   const w = worldDay();
   return `${orn('學院世界')}
   <div class="world-hero"><div class="wh-in">
     <h3>奧術學院・黃昏庭院</h3>
-    <p>走進可以自由探索的 3D 世界：在庭院練習咒語、到森林裡尋找散落的金幣，或是找出藏在立石陣裡的寶箱。</p>
-    <div class="loot"><span>${ic('coins')} 金幣 ${w.coins.length} / 20</span><span>🎯 訓練假人 ${w.dummies.length} / 3</span><span>🧰 寶箱 ${w.chest ? 1 : 0} / 1</span></div>
+    <p>走進可以自由探索的 3D 世界：在庭院練習咒語、和學生與教授交談、走進城堡的星象大廳，或是到森林深處討伐骷髏、尋找寶箱。</p>
+    <div class="loot"><span>${ic('coins')} 金幣 ${w.coins.length} / 20</span><span>🎯 訓練假人 ${w.dummies.length} / 3</span><span>💀 骷髏 ${Math.min(w.kills, 10)} / 10</span><span>🧰 寶箱 ${w.chest ? 1 : 0} / 1</span><span>🎓 教授 ${w.prof.length} / 2</span></div>
     <button class="btn gold big" data-act="enter-world">⚔ 進入世界</button>
     <small>世界獎勵每天重置一次。之後會陸續增加新的地圖與玩法。</small>
   </div></div>
   <h3 class="sec">操作方式</h3>
   <div class="grid keys"><div><b>WASD</b><small>移動</small></div><div><b>滑鼠</b><small>轉動視角</small></div><div><b>Shift</b><small>奔跑</small></div><div><b>空白鍵</b><small>跳躍</small></div>
-    <div><b>左鍵 / F</b><small>基礎咒</small></div><div><b>Q</b><small>漂浮咒（傷害加倍）</small></div><div><b>E</b><small>烈焰咒</small></div><div><b>手機</b><small>左搖桿＋右側拖曳</small></div></div>`;
+    <div><b>左鍵 / F</b><small>基礎咒</small></div><div><b>Q</b><small>漂浮咒（傷害加倍）</small></div><div><b>E</b><small>烈焰咒</small></div><div><b>T</b><small>與學生、教授交談</small></div><div><b>手機</b><small>左搖桿＋右側拖曳</small></div></div>`;
 }
 let inWorld = false;
 async function enterWorld() {
@@ -408,6 +408,14 @@ async function enterWorld() {
       color: HOUSES[S.profile.house].color, done: w, toast, sound: FX.sound,
       onCoin: id => { w.coins.push(id); give({ coins: 2, xp: 1 }, `${ic('coins')} +2 金幣`); },
       onDummy: id => { w.dummies.push(id); give({ coins: 10, xp: 8 }, `🎯 擊倒假人　${ic('coins')} +10　XP +8`); },
+      onKill: big => { w.kills++; give(big ? { coins: 15, xp: 12 } : { coins: 6, xp: 5 }, `💀 擊倒${big ? '骷髏隊長' : '骷髏'}　${ic('coins')} +${big ? 15 : 6}`); },
+      profTalk: id => {
+        const td = today(), n = S.tasks.filter(t => t.daily ? t.lastDone === td : t.doneAt && ymd(new Date(t.doneAt)) === td).length;
+        if (w.prof.includes(id)) return '今天的報到已經完成了。明天再帶著新的成果來找我吧。';
+        if (!n) return '歡迎。不過在我這裡，獎勵只給今天真正完成過任務的人——先去任務之書完成一件事，再回來找我。';
+        w.prof.push(id); give({ coins: 15, gems: 1, xp: 10 }, `🎓 教授的獎勵　${ic('coins')} +15　${ic('gems')} +1`);
+        return `很好，你今天已經完成了 ${n} 個任務。這是你應得的獎勵，繼續保持。`;
+      },
       onChest: () => { w.chest = true; give({ coins: 20, gems: 1, xp: 15 }, `🧰 發現寶箱！${ic('coins')} +20　${ic('gems')} +1`); },
     });
   } catch (e) { console.error(e); document.getElementById('world')?.remove(); toast('⚠️ 無法載入 3D 世界（需要網路連線與支援 WebGL 的瀏覽器）', 4000); }

@@ -264,8 +264,20 @@ details.panel{margin-top:16px}details summary{cursor:pointer;color:var(--gold2);
 .w-joy i{position:absolute;inset:26px;border-radius:50%;background:#fff8}
 .w-hint{position:absolute;left:50%;top:62%;transform:translateX(-50%);padding:12px 22px;background:#05090be0;border:1px solid var(--gold);border-radius:3px;text-align:center;pointer-events:none;transition:opacity .5s;width:max-content;max-width:90vw}
 .w-hint.off{opacity:0}
+.w-vig{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 160px 40px #c0201000;transition:box-shadow .25s}
+#world.hurt .w-vig{box-shadow:inset 0 0 160px 40px #c02010aa;transition:none}
+.w-hp{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);width:min(300px,46vw);pointer-events:none}
+.w-hp .bar{height:10px}.w-hp .bar i{background:linear-gradient(90deg,#2f8a3a,#8fe05a);box-shadow:0 0 8px #8fe05a;transition:width .2s}
+.w-zone{position:absolute;left:0;right:0;top:22%;text-align:center;font:700 2rem var(--disp);letter-spacing:.3em;color:var(--gold2);text-shadow:0 2px 12px #000,0 0 24px var(--gold);opacity:0;pointer-events:none}
+.w-zone.show{animation:zoneIn 3.2s}
+@keyframes zoneIn{15%,70%{opacity:1}0%,100%{opacity:0}0%{letter-spacing:.6em}}
+.w-talk{position:absolute;left:50%;bottom:54px;transform:translateX(-50%);padding:9px 20px;background:#05090be8;border:1px solid var(--gold);border-radius:3px;color:var(--gold2);font-weight:600}
+.w-dlg{position:absolute;left:50%;bottom:54px;transform:translateX(-50%);width:min(560px,92vw);padding:14px 20px;background:#05090bf0;border:1px solid var(--gold);border-radius:4px;box-shadow:0 0 30px #000;cursor:pointer}
+.w-dlg b{color:var(--gold2);letter-spacing:.1em}.w-dlg p{margin:6px 0}.w-dlg small{display:block;text-align:right}
+.w-fade{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .35s;display:grid;place-items:center;color:var(--gold2);letter-spacing:.2em}
+.w-fade.on{opacity:1;pointer-events:auto}
 body:has(#world) #toasts{bottom:auto;top:110px}
-@media(max-width:860px){.w-map{width:104px;height:104px;left:10px;bottom:auto;top:54px}.w-slots{right:34px;bottom:44px}.w-obj{font-size:.72rem}.w-target{top:170px}}
+@media(max-width:860px){.w-hp{bottom:auto;top:44px;left:auto;right:12px;transform:none;width:120px}.w-zone{font-size:1.3rem}.w-dlg,.w-talk{bottom:190px}.w-map{width:104px;height:104px;left:10px;bottom:auto;top:54px}.w-slots{right:34px;bottom:44px}.w-obj{font-size:.72rem}.w-target{top:170px}}
 
 /* 行動裝置 */
 @media(max-width:860px){
