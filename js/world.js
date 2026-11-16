@@ -1,5 +1,5 @@
 // 可遊玩的 3D 學院世界：模型角色與動畫、咒語戰鬥、敵人、學生與教授、城堡大廳
-// api: { color, done:{coins,dummies,chest,kills,prof}, onCoin(id), onDummy(id), onChest(), onKill(), profTalk(id)->string, toast(html), sound(kind) }
+// api: { color, done:{coins,dummies,chest,kills,prof,rings}, onRings(), onCoin(id), onDummy(id), onChest(), onKill(), profTalk(id)->string, toast(html), sound(kind) }
 // 角色模型：KayKit Adventurers / Skeletons（Kay Lousberg，CC0 授權）
 const WORLD_R = 270, COIN_N = 20, HX = 2000, KILL_CAP = 10;
 const CDN = 'https://cdn.jsdelivr.net/gh/KayKit-Game-Assets/';
@@ -37,8 +37,9 @@ export async function openWorld(api) {
       <button class="w-slot" data-s="jump" style="--sc:#6fbf73"><em>⤒</em><kbd>${touch ? '' : '空白'}</kbd><i></i></button>
       <button class="w-slot" data-s="blast" style="--sc:#d86a5a"><em>🔥</em><kbd>E</kbd><i></i></button>
     </div>
+    <button class="w-broom" id="w-broom" title="飛天掃帚">🧹<kbd>${touch ? '' : 'R'}</kbd></button>
     <div class="w-joy" hidden><i></i></div>
-    <div class="w-hint">${touch ? '左半邊拖曳移動・右半邊拖曳轉視角・右下角施放咒語' : '點擊畫面開始　WASD 移動・滑鼠轉視角・Shift 奔跑・空白鍵跳躍<br>左鍵 基礎咒・Q 漂浮咒・E 烈焰咒・T 交談・Esc 釋放滑鼠'}</div>
+    <div class="w-hint">${touch ? '左半邊拖曳移動・右半邊拖曳轉視角・右下角施放咒語<br>🧹 騎上掃帚後，往前推並抬頭或低頭來爬升、下降' : '點擊畫面開始　WASD 移動・滑鼠轉視角・Shift 奔跑・空白鍵跳躍<br>左鍵 基礎咒・Q 漂浮咒・E 烈焰咒・T 交談・Esc 釋放滑鼠<br>R 騎上／收起掃帚　飛行中：空白鍵上升・C 下降・Shift 加速'}</div>
     <div class="w-fade on" id="w-fade"><span>正在召喚學院的居民⋯</span></div>`;
   document.body.appendChild(el);
   const $ = s => el.querySelector(s), cv = $('.w-cv');
@@ -87,11 +88,20 @@ export async function openWorld(api) {
     const g = new T.BoxGeometry(w, h, d), uv = g.attributes.uv, S = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
     if (mat === stone) for (let f = 0; f < 6; f++) for (let i = 0; i < 4; i++) { const k = f * 4 + i; uv.setXY(k, uv.getX(k) * S[f][0] / 5, uv.getY(k) * S[f][1] / 5); }
     const m = new T.Mesh(g, mat); m.position.set(x, y0 + h / 2, z); scene.add(m);
-    if (solid) boxes.push([x - w / 2, x + w / 2, z - d / 2, z + d / 2]); return m;
+    if (solid) boxes.push([x - w / 2, x + w / 2, z - d / 2, z + d / 2, y0 + h]); return m;
   }
   function collide(p, r) {
-    for (const b of boxes) { if (p.x > b[0] - r && p.x < b[1] + r && p.z > b[2] - r && p.z < b[3] + r) { const a = p.x - (b[0] - r), c = (b[1] + r) - p.x, d = p.z - (b[2] - r), e = (b[3] + r) - p.z, m = Math.min(a, c, d, e); if (m === a) p.x = b[0] - r; else if (m === c) p.x = b[1] + r; else if (m === d) p.z = b[2] - r; else p.z = b[3] + r; } }
-    for (const c of circles) { const dx = p.x - c[0], dz = p.z - c[1], d = Math.hypot(dx, dz), q = c[2] + r; if (d < q && d > 1e-4) { p.x = c[0] + dx / d * q; p.z = c[1] + dz / d * q; } }
+    for (const b of boxes) { if (p.y < b[4] - .5 && p.x > b[0] - r && p.x < b[1] + r && p.z > b[2] - r && p.z < b[3] + r) { const a = p.x - (b[0] - r), c = (b[1] + r) - p.x, d = p.z - (b[2] - r), e = (b[3] + r) - p.z, m = Math.min(a, c, d, e); if (m === a) p.x = b[0] - r; else if (m === c) p.x = b[1] + r; else if (m === d) p.z = b[2] - r; else p.z = b[3] + r; } }
+    for (const c of circles) { if (p.y >= (c[3] ?? 1e9) - .5) continue; const dx = p.x - c[0], dz = p.z - c[1], d = Math.hypot(dx, dz), q = c[2] + r; if (d < q && d > 1e-4) { p.x = c[0] + dx / d * q; p.z = c[1] + dz / d * q; } }
+  }
+  // 城堡主屋頂（四角錐）的高度，不在屋頂範圍內回傳 -1
+  const roofY = (x, z) => { const k = Math.max(Math.abs(x) / 23.3, Math.abs(z + 58) / 12.4); return k < 1 ? 20 + 10 * (1 - k) : -1; };
+  // 腳下的地面高度：地形、可站立的牆頂與屋頂
+  function floorAt(p, fly) {
+    let g = H(p.x, p.z);
+    for (const b of boxes) if (b[4] > g && b[4] <= p.y + .6 && p.x > b[0] && p.x < b[1] && p.z > b[2] && p.z < b[3]) g = b[4];
+    const ry = roofY(p.x, p.z); if (ry > g && ry <= p.y + (fly ? 3 : .8)) g = ry;
+    return g;
   }
   function tower(x, z, r, h, roofH) {
     const g = new T.CylinderGeometry(r, r * 1.08, h, 20), uv = g.attributes.uv;
@@ -100,7 +110,7 @@ export async function openWorld(api) {
     const rim = new T.Mesh(new T.CylinderGeometry(r * 1.15, r, 1.2, 20), stone); rim.position.set(x, h, z); scene.add(rim);
     const roof = new T.Mesh(new T.ConeGeometry(r * 1.25, roofH, 20), slate); roof.position.set(x, h + .6 + roofH / 2, z); scene.add(roof);
     for (let i = 0; i < 4; i++) { const a = i * 1.5708 + .6, w = new T.Mesh(new T.PlaneGeometry(.8, 2.2), glow); w.position.set(x + Math.sin(a) * (r + .06), h * .68, z + Math.cos(a) * (r + .06)); w.rotation.y = a; scene.add(w); }
-    circles.push([x, z, r * 1.08]);
+    circles.push([x, z, r * 1.08, h + roofH * .7]);
   }
   function archShape(w, h) { const s = new T.Shape(), b = h - w * .9; s.moveTo(-w / 2, 0); s.lineTo(-w / 2, b); s.quadraticCurveTo(-w / 2, h * .92, 0, h); s.quadraticCurveTo(w / 2, h * .92, w / 2, b); s.lineTo(w / 2, 0); s.closePath(); return s; }
   const plane = (w, d, mat, x, y, z) => { const m = new T.Mesh(new T.PlaneGeometry(w, d), mat); m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); scene.add(m); return m; };
@@ -121,7 +131,7 @@ export async function openWorld(api) {
     plane(72, 84, new T.MeshStandardMaterial({ map: cob(9), roughness: .95 }), 0, .03, -6);
     plane(7, 62, new T.MeshStandardMaterial({ color: 0x4a4436, roughness: 1 }), 0, .04, 66);
     const lake = new T.Mesh(new T.CircleGeometry(22, 48), new T.MeshStandardMaterial({ color: 0x1c4a66, metalness: .7, roughness: .15, transparent: true, opacity: .9 }));
-    lake.rotation.x = -Math.PI / 2; lake.position.set(66, .06, 34); scene.add(lake); circles.push([66, 34, 21]);
+    lake.rotation.x = -Math.PI / 2; lake.position.set(66, .06, 34); scene.add(lake); circles.push([66, 34, 21, 1]);
   }
   // ---------- 城堡外觀 ----------
   box(44, 20, 22, 0, -58);
@@ -150,13 +160,13 @@ export async function openWorld(api) {
       m.compose(v.set(x, y + 1.5 * k, z), q, s.set(k, k, k)); trunk.setMatrixAt(n, m);
       m.compose(v.set(x, y + 4.6 * k, z), q, s.set(k, k, k)); leaf.setMatrixAt(n * 2, m);
       m.compose(v.set(x, y + 6.8 * k, z), q, s.set(k * .7, k * .8, k * .7)); leaf.setMatrixAt(n * 2 + 1, m);
-      circles.push([x, z, .5 * k]); n++;
+      circles.push([x, z, .5 * k, y + 8 * k]); n++;
     }
     scene.add(trunk, leaf);
   }
   // 立石陣與寶箱
   const chestPos = new T.Vector3(-120, H(-120, 95), 95);
-  for (let i = 0; i < 9; i++) { const a = i / 9 * 6.283, x = -120 + Math.cos(a) * 9, z = 95 + Math.sin(a) * 9, st = new T.Mesh(new T.BoxGeometry(1.6, 5 + (i % 3), 1), stone); st.position.set(x, H(x, z) + 2.4, z); st.rotation.y = -a; scene.add(st); circles.push([x, z, 1]); }
+  for (let i = 0; i < 9; i++) { const a = i / 9 * 6.283, x = -120 + Math.cos(a) * 9, z = 95 + Math.sin(a) * 9, st = new T.Mesh(new T.BoxGeometry(1.6, 5 + (i % 3), 1), stone); st.position.set(x, H(x, z) + 2.4, z); st.rotation.y = -a; scene.add(st); circles.push([x, z, 1, H(x, z) + 8]); }
   const chest = new T.Group();
   { const b = new T.Mesh(new T.BoxGeometry(1.6, .9, 1), wood); b.position.y = .45; const lid = new T.Mesh(new T.CylinderGeometry(.5, .5, 1.6, 12, 1, false, 0, Math.PI), wood); lid.rotation.z = Math.PI / 2; lid.position.y = .9;
     const band = new T.Mesh(new T.BoxGeometry(.25, 1.45, 1.06), gold); band.position.y = .7; chest.add(b, lid, band); chest.position.copy(chestPos); scene.add(chest);
@@ -166,9 +176,9 @@ export async function openWorld(api) {
   for (const [cx, cz] of CAMPS.slice(0, 2)) {
     const y = H(cx, cz), f = new T.Mesh(new T.ConeGeometry(.7, 1.8, 7), new T.MeshBasicMaterial({ color: 0xff8a30 })); f.position.set(cx, y + .9, cz); scene.add(f);
     for (let i = 0; i < 5; i++) { const lg = new T.Mesh(new T.CylinderGeometry(.12, .12, 1.6, 5), wood); lg.position.set(cx, y + .15, cz); lg.rotation.set(1.5708, 0, i * 1.26); scene.add(lg); }
-    const l = new T.PointLight(0xff7a30, 160, 40, 1.6); l.position.set(cx, y + 2.2, cz); outLights.add(l); fires.push({ f, l }); circles.push([cx, cz, 1]);
-    for (const [dx, dz, w, d] of [[-8, -5, 6, 1.2], [7, -8, 1.2, 7], [9, 6, 5, 1.2]]) { const m = box(w, 2.5 + (dx & 1), d, cx + dx, cz + dz); m.position.y += H(cx + dx, cz + dz) - .3; }
-    for (const [dx, dz] of [[-6, 7], [3, 10]]) { const t = new T.Mesh(new T.ConeGeometry(2.6, 3.4, 4), new T.MeshStandardMaterial({ color: 0x4a3a3a, roughness: 1, flatShading: true })); t.position.set(cx + dx, H(cx + dx, cz + dz) + 1.7, cz + dz); t.rotation.y = .6; scene.add(t); circles.push([cx + dx, cz + dz, 2]); }
+    const l = new T.PointLight(0xff7a30, 160, 40, 1.6); l.position.set(cx, y + 2.2, cz); outLights.add(l); fires.push({ f, l }); circles.push([cx, cz, 1, y + 2.5]);
+    for (const [dx, dz, w, d] of [[-8, -5, 6, 1.2], [7, -8, 1.2, 7], [9, 6, 5, 1.2]]) { const m = box(w, 2.5 + (dx & 1), d, cx + dx, cz + dz); m.position.y += H(cx + dx, cz + dz) - .3; boxes[boxes.length - 1][4] += H(cx + dx, cz + dz); }
+    for (const [dx, dz] of [[-6, 7], [3, 10]]) { const t = new T.Mesh(new T.ConeGeometry(2.6, 3.4, 4), new T.MeshStandardMaterial({ color: 0x4a3a3a, roughness: 1, flatShading: true })); t.position.set(cx + dx, H(cx + dx, cz + dz) + 1.7, cz + dz); t.rotation.y = .6; scene.add(t); circles.push([cx + dx, cz + dz, 2, H(cx + dx, cz + dz) + 3.6]); }
   }
 
   // ---------- 星象大廳（城堡內部）----------
@@ -259,7 +269,31 @@ export async function openWorld(api) {
   // ---------- 玩家 ----------
   const pa = actor('mage'), player = pa.root; player.position.set(0, 0, 16); player.rotation.y = Math.PI;
   const blob = new T.Mesh(new T.CircleGeometry(.55, 16), new T.MeshBasicMaterial({ color: 0, transparent: true, opacity: .35, depthWrite: false })); blob.rotation.x = -1.5708; scene.add(blob);
-  const P = { vy: 0, ground: true, hp: 100, hurtAt: -9, dead: 0, door: 0 };
+  const P = { vy: 0, vx: 0, vz: 0, roll: 0, fly: false, ground: true, hp: 100, hurtAt: -9, dead: 0, door: 0 };
+  player.rotation.order = 'YXZ';
+  // 飛天掃帚
+  const broom = new T.Group(); {
+    const stick = new T.Mesh(new T.CylinderGeometry(.04, .06, 2.5, 8), wood); stick.rotation.x = 1.5708; stick.position.z = .25;
+    const br = new T.Mesh(new T.ConeGeometry(.3, 1.15, 10), new T.MeshStandardMaterial({ color: 0xb8893a, roughness: 1, flatShading: true })); br.rotation.x = 1.5708; br.position.z = -1.42;
+    const band = new T.Mesh(new T.TorusGeometry(.11, .035, 8, 16), gold); band.position.z = -.95;
+    broom.add(stick, br, band); broom.position.y = .5; broom.visible = false; player.add(broom);
+  }
+  const SIT = pa.clips ? ['Sit_Chair_Idle', 'Sit_Chair_Pose', 'Jump_Idle'].find(c => pa.clips[c]) : 'Idle';
+  function setFly(v) {
+    if (P.fly === v) return; P.fly = v; broom.visible = v; $('#w-broom').classList.toggle('on', v);
+    puff(tmp.copy(player.position).setY(player.position.y + .7), 0xffe0a0, 40, 5, .8, 1);
+    if (v) { P.vx = P.vz = 0; P.vy = 6; pa.lock = 0; } else { P.roll = 0; player.rotation.x = player.rotation.z = 0; pitch = Math.max(-.25, pitch); pa.cur = ''; }
+  }
+  function broomToggle() {
+    if (!alive || P.dead || P.door) return;
+    if (!P.fly && zone !== 'out') return api.toast('大廳裡不能騎掃帚，到戶外再試試');
+    api.sound(P.fly ? 'flip' : 'cast'); setFly(!P.fly);
+  }
+  // 空中飛環
+  const RINGS = [[0, 48, 10], [48, 34, 18], [70, -20, 24], [40, -84, 34], [0, -74, 72], [-40, -84, 34], [-70, -20, 24], [-48, 34, 18]], rings = [];
+  { const rg = new T.TorusGeometry(3, .16, 8, 40);
+    RINGS.forEach(([x, z, y], i) => { const m = new T.Mesh(rg, new T.MeshBasicMaterial({ color: 0x8fe6ff, transparent: true, opacity: .95, fog: false })); m.position.set(x, y, z); const nx = RINGS[(i + 1) % RINGS.length]; m.lookAt(nx[0], nx[2], nx[1]); scene.add(m); rings.push({ m, got: false }); }); }
+  let ringN = 0;
 
   // ---------- 目標：訓練假人 + 骷髏 ----------
   const targets = [];
@@ -270,7 +304,7 @@ export async function openWorld(api) {
     const a = new T.Mesh(new T.BoxGeometry(1.5, .14, .14), mat); a.position.y = 1.62;
     const post = new T.Mesh(new T.CylinderGeometry(.07, .07, .7, 6), wood); post.position.y = .35;
     const sh = new T.Mesh(new T.CircleGeometry(.36, 10), new T.MeshStandardMaterial({ color: 0x2c4a63, metalness: .5, roughness: .4, side: T.DoubleSide })); sh.position.set(0, 1.3, .31);
-    g.add(b, h, a, post, sh); g.position.set(x, 0, z); scene.add(g); circles.push([x, z, .5]);
+    g.add(b, h, a, post, sh); g.position.set(x, 0, z); scene.add(g); circles.push([x, z, .5, 2.6]);
     targets.push({ kind: 'dummy', id, name: '訓練假人', root: g, mats: [mat], hp: 6, max: 6, lev: 0, y: 0, wob: 0, dead: 0, flash: 0, ch: 1.4 });
   });
   const er = rng(77);
@@ -328,7 +362,7 @@ export async function openWorld(api) {
   }
   const fadeEl = $('#w-fade');
   function travel(to, x, z, rot) {
-    P.door = 1.2; fadeEl.querySelector('span').textContent = ''; fadeEl.classList.add('on'); api.sound('buy');
+    setFly(false); P.door = 1.2; fadeEl.querySelector('span').textContent = ''; fadeEl.classList.add('on'); api.sound('buy');
     setTimeout(() => { player.position.set(x, H(x, z), z); player.rotation.y = rot; yaw = rot + Math.PI; setZone(to); fadeEl.classList.remove('on'); }, 380);
   }
 
@@ -337,20 +371,21 @@ export async function openWorld(api) {
   let yaw = 0, pitch = .34, drag = false, alive = true;
   const locked = () => document.pointerLockElement === cv;
   const off = [], on = (t, e, f, o) => { t.addEventListener(e, f, o); off.push(() => t.removeEventListener(e, f, o)); };
-  on(window, 'keydown', e => { if (e.target.matches?.('input,textarea')) return; keys[e.code] = true; if (e.code === 'Space') e.preventDefault(); if (e.code === 'KeyQ') cast('lev'); if (e.code === 'KeyE') cast('blast'); if (e.code === 'KeyF') cast('bolt'); if (e.code === 'KeyT' || e.code === 'Enter') talk(); });
+  on(window, 'keydown', e => { if (e.target.matches?.('input,textarea')) return; keys[e.code] = true; if (e.code === 'Space') e.preventDefault(); if (e.code === 'KeyQ') cast('lev'); if (e.code === 'KeyE') cast('blast'); if (e.code === 'KeyF') cast('bolt'); if (e.code === 'KeyR' && !e.repeat) broomToggle(); if (e.code === 'KeyT' || e.code === 'Enter') talk(); });
   on(window, 'keyup', e => { keys[e.code] = false; });
   on(window, 'blur', () => { for (const k in keys) keys[k] = false; });
   on(cv, 'mousedown', e => { $('.w-hint').classList.add('off'); if (!locked()) { drag = true; try { const p = cv.requestPointerLock(); p && p.catch && p.catch(() => {}); } catch (x) { /* 不支援時改用拖曳 */ } } else if (e.button === 0) cast('bolt'); });
   on(window, 'mouseup', () => { drag = false; });
-  on(window, 'mousemove', e => { if (locked() || drag) { yaw -= e.movementX * .0028; pitch = Math.max(-.25, Math.min(1.2, pitch + e.movementY * .0022)); } });
+  on(window, 'mousemove', e => { if (locked() || drag) { yaw -= e.movementX * .0028; pitch = Math.max(P.fly ? -.8 : -.25, Math.min(1.2, pitch + e.movementY * .0022)); } });
   on(cv, 'touchstart', e => { e.preventDefault(); $('.w-hint').classList.add('off');
     for (const t of e.changedTouches) { if (t.clientX < innerWidth * .45 && joy.id === null) { joy.id = t.identifier; joy.ox = t.clientX; joy.oy = t.clientY; const j = $('.w-joy'); j.hidden = false; j.style.left = t.clientX + 'px'; j.style.top = t.clientY + 'px'; } else if (look.id === null) { look.id = t.identifier; look.x = t.clientX; look.y = t.clientY; } } }, { passive: false });
   on(cv, 'touchmove', e => { e.preventDefault();
     for (const t of e.changedTouches) { if (t.identifier === joy.id) { let dx = (t.clientX - joy.ox) / 55, dy = (t.clientY - joy.oy) / 55; const l = Math.hypot(dx, dy); if (l > 1) { dx /= l; dy /= l; } joy.x = dx; joy.y = dy; $('.w-joy i').style.transform = `translate(${dx * 34}px,${dy * 34}px)`; }
-      if (t.identifier === look.id) { yaw -= (t.clientX - look.x) * .006; pitch = Math.max(-.25, Math.min(1.2, pitch + (t.clientY - look.y) * .004)); look.x = t.clientX; look.y = t.clientY; } } }, { passive: false });
+      if (t.identifier === look.id) { yaw -= (t.clientX - look.x) * .006; pitch = Math.max(P.fly ? -.8 : -.25, Math.min(1.2, pitch + (t.clientY - look.y) * .004)); look.x = t.clientX; look.y = t.clientY; } } }, { passive: false });
   const tEnd = e => { for (const t of e.changedTouches) { if (t.identifier === joy.id) { joy.id = null; joy.x = joy.y = 0; $('.w-joy').hidden = true; $('.w-joy i').style.transform = ''; } if (t.identifier === look.id) look.id = null; } };
   on(cv, 'touchend', tEnd); on(cv, 'touchcancel', tEnd);
   el.querySelectorAll('.w-slot').forEach(b => on(b, 'pointerdown', e => { e.preventDefault(); b.dataset.s === 'jump' ? jump() : cast(b.dataset.s); }));
+  on($('#w-broom'), 'pointerdown', e => { e.preventDefault(); broomToggle(); });
   on($('#w-talk'), 'pointerdown', e => { e.preventDefault(); talk(); }); on($('#w-dlg'), 'pointerdown', () => talk());
   function resize() { const w = el.clientWidth, h = el.clientHeight; R.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
   on(window, 'resize', resize); resize();
@@ -370,7 +405,7 @@ export async function openWorld(api) {
   const tmp = new T.Vector3(), fwd = new T.Vector3();
   let target = null, time = 0;
   const center = t => tmp.copy(t.root.position).setY(t.root.position.y + t.ch);
-  function jump() { if (P.ground && !P.dead) { P.vy = 7.5; P.ground = false; pa.play('Jump_Start', true, .1); pa.lock = .3; } }
+  function jump() { if (P.fly) { P.vy = 9; return; } if (P.ground && !P.dead) { P.vy = 7.5; P.ground = false; pa.play('Jump_Start', true, .1); pa.lock = .3; } }
   function cast(kind) {
     if (!alive || P.dead || cd[kind] > 0) return;
     if (kind === 'lev' && !target) return api.toast('漂浮咒需要一個目標，先面向假人或敵人');
@@ -399,12 +434,12 @@ export async function openWorld(api) {
   function hurt(n) {
     if (P.dead) return; P.hp -= n; P.hurtAt = time; api.sound('deny'); el.classList.add('hurt'); setTimeout(() => el.classList.remove('hurt'), 250);
     puff(tmp.copy(player.position).setY(player.position.y + 1.2), 0xff4030, 16, 4, .4);
-    if (P.hp <= 0) { P.hp = 0; P.dead = 2.6; pa.play('Death_A', true, .05); pa.lock = 9; api.toast('你昏倒了⋯'); fadeEl.querySelector('span').textContent = '你被送回了庭院'; setTimeout(() => fadeEl.classList.add('on'), 1500); }
+    if (P.hp <= 0) { setFly(false); P.hp = 0; P.dead = 2.6; pa.play('Death_A', true, .05); pa.lock = 9; api.toast('你昏倒了⋯'); fadeEl.querySelector('span').textContent = '你被送回了庭院'; setTimeout(() => fadeEl.classList.add('on'), 1500); }
     else if (pa.lock <= 0) { pa.play('Hit_A', true, .05); pa.lock = .3; }
   }
 
   // ---------- HUD ----------
-  function objective() { const d = api.done; $('#w-obj').innerHTML = `◈ 今日探索　金幣 <b>${d.coins.length}/${COIN_N}</b>　假人 <b>${d.dummies.length}/3</b>　骷髏 <b>${Math.min(d.kills, KILL_CAP)}/${KILL_CAP}</b>　寶箱 <b>${d.chest ? 1 : 0}/1</b>　教授 <b>${d.prof.length}/2</b>`; }
+  function objective() { const d = api.done; $('#w-obj').innerHTML = `◈ 今日探索　金幣 <b>${d.coins.length}/${COIN_N}</b>　假人 <b>${d.dummies.length}/3</b>　骷髏 <b>${Math.min(d.kills, KILL_CAP)}/${KILL_CAP}</b>　寶箱 <b>${d.chest ? 1 : 0}/1</b>　教授 <b>${d.prof.length}/2</b>　飛環 <b>${d.rings ? RINGS.length : ringN}/${RINGS.length}</b>`; }
   objective();
   const map = $('.w-map').getContext('2d'), slotI = {}; el.querySelectorAll('.w-slot').forEach(b => slotI[b.dataset.s] = b.querySelector('i'));
   const dot = (x, z, r, c) => { map.fillStyle = c; map.beginPath(); map.arc(x, z, r, 0, 6.283); map.fill(); };
@@ -418,6 +453,7 @@ export async function openWorld(api) {
     map.fillStyle = '#aab4b8'; for (const b of boxes) if (Math.abs(b[0] - px) < 90) map.fillRect(b[0], b[2], b[1] - b[0], b[3] - b[2]);
     if (!hall) { for (const c of circles) if (c[2] > 3 && c[2] < 10) dot(c[0], c[1], c[2], '#aab4b8'); map.fillStyle = '#6fe0c0'; map.fillRect(-3, -47.5, 6, 2.5);
       for (const c of coins) dot(c.m.position.x, c.m.position.z, 1.6, '#f1c75b');
+      for (const g of rings) if (!g.got) dot(g.m.position.x, g.m.position.z, 1.5, '#8fe6ff');
       for (const t of targets) if (!t.dead) dot(t.root.position.x, t.root.position.z, t.big ? 2.6 : 1.7, '#ff6a5a');
       if (!api.done.chest) { map.fillStyle = '#b07cf0'; map.fillRect(chestPos.x - 2.5, chestPos.z - 2.5, 5, 5); } }
     for (const n of npcs) if (n.zone === zone) dot(n.a.root.position.x, n.a.root.position.z, hall ? 1 : 1.6, n.prof ? '#c9a8ff' : '#8fd8ff');
@@ -436,7 +472,7 @@ export async function openWorld(api) {
     t.lev = Math.max(0, t.lev - dt); t.y += ((t.lev > 0 ? 2.4 + Math.sin(time * 3) * .2 : 0) - t.y) * Math.min(1, dt * (t.lev > 0 ? 4 : 7));
     const gy = H(rp.x, rp.z); rp.y = gy + t.y; a.lock = Math.max(0, a.lock - dt);
     if (t.lev > 0) { a.play('Jump_Idle'); r.rotation.y += dt * 1.5; if ((time * 15 | 0) % 4 === 0) puff(tmp.copy(rp), 0xffd860, 1, 1, .6, -1); return; }
-    const dx = pp.x - rp.x, dz = pp.z - rp.z, d = Math.hypot(dx, dz), sees = !P.dead && zone === 'out' && d < 20 && Math.hypot(rp.x - t.home.x, rp.z - t.home.z) < 55;
+    const dx = pp.x - rp.x, dz = pp.z - rp.z, d = Math.hypot(dx, dz), sees = !P.dead && zone === 'out' && d < 20 && pp.y - rp.y < 7 && Math.hypot(rp.x - t.home.x, rp.z - t.home.z) < 55;
     if (t.state === 'hurt') { t.t -= dt; if (t.t <= 0) t.state = 'chase'; return; }
     if (t.state === 'attack') {
       t.t -= dt; face(r, dx, dz, dt, 6);
@@ -460,24 +496,39 @@ export async function openWorld(api) {
   let last = performance.now(), frame = 0;
   function loop(now) {
     if (!alive) return;
-    const dt = Math.min((now - last) / 1000, .05); last = now; time += dt; frame++;
+    const dt = Math.max(0, Math.min((now - last) / 1000, .05)); last = now; time += dt; frame++;
     const pp = player.position, hall = zone === 'hall';
     // 移動
     let ix = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + joy.x, iz = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0) - joy.y;
-    if (P.dead) ix = iz = 0; else if (keys.Space) jump();
+    if (P.dead) ix = iz = 0; else if (keys.Space && !P.fly) jump();
     const il = Math.hypot(ix, iz); if (il > 1) { ix /= il; iz /= il; }
     const run = keys.ShiftLeft || keys.ShiftRight || (il > .95 && touch), sp = (run ? 9 : 5.5) * Math.min(il, 1);
     const sn = Math.sin(yaw), cs = Math.cos(yaw), mx = (-sn * iz + cs * ix), mz = (-cs * iz - sn * ix);
-    if (il > .05) { pp.x += mx / Math.max(il, 1e-3) * sp * dt; pp.z += mz / Math.max(il, 1e-3) * sp * dt; if (pa.lock <= 0) face(player, mx, mz, dt, 12); }
-    collide(pp, .45);
+    if (P.fly) { // 掃帚飛行：有慣性，往視線方向爬升或俯衝
+      const top = run ? 27 : 15, m = Math.min(il, 1) / Math.max(il, 1e-3), k = Math.min(1, dt * 2.2);
+      P.vx += (mx * m * top - P.vx) * k; P.vz += (mz * m * top - P.vz) * k;
+      const tilt = .3 - pitch, tvy = ((keys.Space ? 1 : 0) - (keys.KeyC || keys.KeyX ? 1 : 0)) * 10 + (Math.abs(tilt) > .08 ? Math.max(0, iz) * tilt * top * .8 : 0);
+      P.vy += (tvy - P.vy) * Math.min(1, dt * 3);
+      pp.x += P.vx * dt; pp.z += P.vz * dt;
+      const r0 = player.rotation.y; if (Math.hypot(P.vx, P.vz) > 1 && pa.lock <= 0) face(player, P.vx, P.vz, dt, 6);
+      P.roll += (Math.max(-.6, Math.min(.6, -(player.rotation.y - r0) / Math.max(dt, 1e-3) * .2)) - P.roll) * Math.min(1, dt * 5);
+      player.rotation.z = P.roll; player.rotation.x += (Math.max(-.45, Math.min(.45, -P.vy * .035)) - player.rotation.x) * Math.min(1, dt * 5);
+    } else if (il > .05) { pp.x += mx / Math.max(il, 1e-3) * sp * dt; pp.z += mz / Math.max(il, 1e-3) * sp * dt; if (pa.lock <= 0) face(player, mx, mz, dt, 12); }
+    collide(pp, P.fly ? .6 : .45);
     if (!hall) { const pr = Math.hypot(pp.x, pp.z); if (pr > WORLD_R) { pp.x *= WORLD_R / pr; pp.z *= WORLD_R / pr; } }
-    const gy = H(pp.x, pp.z); P.vy -= 20 * dt; pp.y += P.vy * dt; if (pp.y <= gy) { pp.y = gy; P.vy = 0; P.ground = true; } else if (pp.y > gy + .05) P.ground = false;
-    blob.position.set(pp.x, gy + .05, pp.z);
+    const gy = floorAt(pp, P.fly);
+    if (P.fly) {
+      pp.y += P.vy * dt; P.ground = false; const lo = gy + 1 + Math.sin(time * 2) * .06;
+      if (pp.y < lo) { pp.y = Math.max(gy + .3, pp.y + (lo - pp.y) * Math.min(1, dt * 8)); P.vy = Math.max(P.vy, 0); }
+      if (pp.y > 95) { pp.y = 95; P.vy = Math.min(P.vy, 0); }
+      if (frame % 2 === 0 && Math.hypot(P.vx, P.vz) > 5) puff(tmp.set(pp.x - Math.sin(player.rotation.y) * 1.9, pp.y + .5, pp.z - Math.cos(player.rotation.y) * 1.9), 0xffe0a0, 1, .5, .7, .6);
+    } else { P.vy -= 20 * dt; pp.y += P.vy * dt; if (pp.y <= gy) { pp.y = gy; P.vy = 0; P.ground = true; } else if (pp.y > gy + .05) P.ground = false; }
+    blob.position.set(pp.x, gy + .05, pp.z); blob.scale.setScalar(Math.max(.35, 1 - (pp.y - gy) * .03));
     pa.lock = Math.max(0, pa.lock - dt);
-    if (pa.lock <= 0 && !P.dead) pa.play(!P.ground ? 'Jump_Idle' : il > .05 ? (run ? 'Running_A' : 'Walking_A') : 'Idle');
+    if (pa.lock <= 0 && !P.dead) pa.play(P.fly ? SIT : !P.ground ? 'Jump_Idle' : il > .05 ? (run ? 'Running_A' : 'Walking_A') : 'Idle');
     // 城堡大門
     P.door = Math.max(0, P.door - dt);
-    if (!P.door && !P.dead) { if (!hall && Math.abs(pp.x) < 2.4 && pp.z < -45.9 && pp.z > -48) travel('hall', HX, 33, Math.PI); else if (hall && Math.abs(pp.x - HX) < 2.8 && pp.z > 35.4) travel('out', 0, -43.5, 0); }
+    if (!P.door && !P.dead) { if (!hall && pp.y < 3 && Math.abs(pp.x) < 2.4 && pp.z < -45.9 && pp.z > -48) travel('hall', HX, 33, Math.PI); else if (hall && Math.abs(pp.x - HX) < 2.8 && pp.z > 35.4) travel('out', 0, -43.5, 0); }
     // 生命值
     if (P.dead) { P.dead -= dt; if (P.dead <= 0) { P.dead = 0; P.hp = 100; pa.lock = 0; pa.cur = ''; player.position.set(0, 0, 16); player.rotation.y = Math.PI; yaw = 0; setZone('out'); fadeEl.classList.remove('on'); } }
     else if (time - P.hurtAt > 5) P.hp = Math.min(100, P.hp + 6 * dt);
@@ -522,6 +573,9 @@ export async function openWorld(api) {
     if (!hall) {
       for (let i = coins.length - 1; i >= 0; i--) { const c = coins[i]; c.m.rotation.y += dt * 3; c.m.position.y = c.y + Math.sin(time * 2 + c.id) * .18;
         if (Math.abs(c.m.position.x - pp.x) < 1.5 && Math.abs(c.m.position.z - pp.z) < 1.5 && Math.abs(c.m.position.y - pp.y - 1) < 2.2) { puff(c.m.position, 0xffd860, 30, 5, .7, 2); scene.remove(c.m); coins.splice(i, 1); api.onCoin(c.id); api.sound('coin'); objective(); } }
+      for (const g of rings) { g.m.rotation.z += dt * .6; if (g.got) continue; g.m.scale.setScalar(1 + Math.sin(time * 3) * .04);
+        if (Math.hypot(g.m.position.x - pp.x, g.m.position.y - pp.y - .8, g.m.position.z - pp.z) < 3) { g.got = true; ringN++; g.m.material.color.set(0xffd860); g.m.material.opacity = .3; puff(g.m.position, 0x8fe6ff, 70, 9, 1, 1); api.sound('coin');
+          if (ringN === RINGS.length) { api.sound('level'); if (!api.done.rings && api.onRings) api.onRings(); else api.toast('🧹 完成飛環巡禮（今日獎勵已領取）'); } objective(); } }
       if (!api.done.chest && pp.distanceTo(chestPos) < 2.6) { api.onChest(); chest.userData.light && chest.remove(chest.userData.light); puff(chestPos.clone().setY(chestPos.y + 1), 0xb07cf0, 120, 9, 1.4, 4); api.sound('level'); objective(); }
       for (const f of fires) { f.f.scale.set(1 + Math.sin(time * 13) * .12, 1 + Math.sin(time * 9) * .2, 1 + Math.cos(time * 11) * .12); f.l.intensity = 150 + Math.sin(time * 17) * 30; if (frame % 3 === 0 && Math.abs(f.f.position.x - pp.x) < 60) puff(f.f.position, 0xff8a30, 1, .6, 1, 2.5); }
       const a = flies.geometry.attributes.position, b = flies.userData.base; for (let i = 0; i < a.count; i++) { a.array[i * 3] = b[i * 3] + Math.sin(time * .6 + i) * 1.2; a.array[i * 3 + 1] = b[i * 3 + 1] + Math.sin(time * .9 + i * 1.7) * .5; } a.needsUpdate = true;
@@ -535,14 +589,16 @@ export async function openWorld(api) {
     pGeo.attributes.position.needsUpdate = pGeo.attributes.color.needsUpdate = true;
     for (const k in cd) { cd[k] = Math.max(0, cd[k] - dt); if (slotI[k]) slotI[k].style.height = (CD[k] ? cd[k] / CD[k] * 100 : 0) + '%'; }
     // 相機（越肩視角）
-    const cp = Math.cos(pitch), dist = hall ? 6.4 : 7.6, tx = pp.x + cs * .9, tz = pp.z - sn * .9, ty = pp.y + 2.35;
+    P.cd = (P.cd || 7.6) + ((hall ? 6.4 : P.fly ? 9.6 : 7.6) - (P.cd || 7.6)) * Math.min(1, dt * 4);
+    const wf = 60 + (P.fly ? Math.min(1, Math.hypot(P.vx, P.vz) / 27) * 16 : 0); if (Math.abs(cam.fov - wf) > .05) { cam.fov += (wf - cam.fov) * Math.min(1, dt * 4); cam.updateProjectionMatrix(); }
+    const cp = Math.cos(pitch), dist = P.cd, tx = pp.x + cs * .9, tz = pp.z - sn * .9, ty = pp.y + 2.35;
     let cx = tx + sn * cp * dist, cz = tz + cs * cp * dist, cy = ty + Math.sin(pitch) * dist;
     if (hall) { cx = Math.max(HX - 14.5, Math.min(HX + 14.5, cx)); cz = Math.max(-35.5, Math.min(35.5, cz)); cy = Math.min(13, Math.max(.5, cy)); } else cy = Math.max(cy, H(cx, cz) + .5);
     cam.position.set(cx, cy, cz); cam.lookAt(tx, ty, tz);
     R.render(scene, cam); if (frame % 3 === 0) drawMap();
     requestAnimationFrame(loop);
   }
-  el.debug = { travel, player, hurt }; // 測試用
+  el.debug = { travel, player, hurt, P, keys, broomToggle, step: loop }; // 測試用
   setZone('out'); fadeEl.classList.remove('on');
   if (!lib.mage) api.toast('角色模型載入失敗，暫時使用簡易造型（請確認網路連線）', 4000);
   requestAnimationFrame(loop);

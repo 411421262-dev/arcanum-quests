@@ -260,6 +260,9 @@ details.panel{margin-top:16px}details summary{cursor:pointer;color:var(--gold2);
 .w-slot kbd{font:700 .6rem var(--serif);place-items:end center;padding-bottom:1px;color:#fff}
 .w-slot i{position:absolute;left:0;right:0;bottom:0;background:#000b;height:0}
 .w-slot:active{filter:brightness(1.4)}
+.w-broom{position:absolute;right:80px;bottom:206px;width:54px;height:54px;border-radius:50%;border:2px solid var(--gold2);background:#0b1418d0;color:#fff;font-size:1.5rem;display:grid;place-items:center;box-shadow:0 0 12px #000a;cursor:pointer}
+.w-broom kbd{position:absolute;bottom:-3px;right:-3px;font:700 .6rem var(--serif);background:#05090b;border:1px solid var(--gold);border-radius:3px;padding:0 4px}.w-broom kbd:empty{display:none}
+.w-broom.on{background:radial-gradient(circle,#f3dc9a,#b8862a);box-shadow:0 0 18px var(--gold2)}
 .w-joy{position:absolute;width:96px;height:96px;margin:-48px;border-radius:50%;border:2px solid #fff5;background:#0004;pointer-events:none}
 .w-joy i{position:absolute;inset:26px;border-radius:50%;background:#fff8}
 .w-hint{position:absolute;left:50%;top:62%;transform:translateX(-50%);padding:12px 22px;background:#05090be0;border:1px solid var(--gold);border-radius:3px;text-align:center;pointer-events:none;transition:opacity .5s;width:max-content;max-width:90vw}
@@ -277,7 +280,7 @@ details.panel{margin-top:16px}details summary{cursor:pointer;color:var(--gold2);
 .w-fade{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .35s;display:grid;place-items:center;color:var(--gold2);letter-spacing:.2em}
 .w-fade.on{opacity:1;pointer-events:auto}
 body:has(#world) #toasts{bottom:auto;top:110px}
-@media(max-width:860px){.w-hp{bottom:auto;top:44px;left:auto;right:12px;transform:none;width:120px}.w-zone{font-size:1.3rem}.w-dlg,.w-talk{bottom:190px}.w-map{width:104px;height:104px;left:10px;bottom:auto;top:54px}.w-slots{right:34px;bottom:44px}.w-obj{font-size:.72rem}.w-target{top:170px}}
+@media(max-width:860px){.w-hp{bottom:auto;top:44px;left:auto;right:12px;transform:none;width:120px}.w-zone{font-size:1.3rem}.w-dlg,.w-talk{bottom:190px}.w-map{width:104px;height:104px;left:10px;bottom:auto;top:54px}.w-slots{right:34px;bottom:44px}.w-broom{right:68px;bottom:204px}.w-obj{font-size:.72rem}.w-target{top:170px}}
 
 /* 行動裝置 */
 @media(max-width:860px){
