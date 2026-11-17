@@ -1,14 +1,16 @@
-// 可遊玩的 3D 學院世界：模型角色與動畫、咒語戰鬥、敵人、學生與教授、城堡大廳
+// 可遊玩的 3D 學院世界：寫實比例角色與長袍、咒語戰鬥、敵人、學生與教授、城堡大廳
 // api: { color, done:{coins,dummies,chest,kills,prof,rings}, onRings(), onCoin(id), onDummy(id), onChest(), onKill(), profTalk(id)->string, toast(html), sound(kind) }
-// 角色模型：KayKit Adventurers / Skeletons（Kay Lousberg，CC0 授權）
+// 角色模型與動作：Quaternius Universal Base Characters / Universal Animation Library（CC0 授權）
 const WORLD_R = 270, COIN_N = 20, HX = 2000, KILL_CAP = 10;
-const CDN = 'https://cdn.jsdelivr.net/gh/KayKit-Game-Assets/';
-const MODELS = {
-  mage: CDN + 'KayKit-Character-Pack-Adventures-1.0@672074b73ba276876a19e8816ecdc5241817ab47/addons/kaykit_character_pack_adventures/Characters/gltf/Mage.glb',
-  rogue: CDN + 'KayKit-Character-Pack-Adventures-1.0@672074b73ba276876a19e8816ecdc5241817ab47/addons/kaykit_character_pack_adventures/Characters/gltf/Rogue_Hooded.glb',
-  skel: CDN + 'KayKit-Character-Pack-Skeletons-1.0@15b62b9bad122f72926c10fb14d622c73819fa54/addons/kaykit_character_pack_skeletons/Characters/gltf/Skeleton_Minion.glb',
-};
-const HIDE = { mage: ['Spellbook', 'Spellbook_open', '2H_Staff'], prof: ['Spellbook', '1H_Wand', 'Spellbook_open'], rogue: ['Knife_Offhand', '1H_Crossbow', '2H_Crossbow', 'Knife', 'Throwable'], skel: [] };
+const QB = 'https://cdn.jsdelivr.net/gh/EVEngine/EVEngine@f9559820160987ab780d7adc83469c4209407898/examples/character-motion-lab/assets/quaternius/';
+const MODELS = { male: QB + 'Superhero_Male_FullBody.gltf', female: QB + 'Superhero_Female_FullBody.gltf', anim: QB + 'AnimationLibrary.glb' };
+const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
+// 舊動作名稱 → 動畫庫裡的片段
+const AN = { Idle: 'Idle_Loop', Walking_A: 'Walk_Loop', Running_A: 'Jog_Fwd_Loop', Sprint: 'Sprint_Loop', Jump_Idle: 'Jump_Loop', Jump_Start: 'Jump_Loop', Spellcast_Shoot: 'Spell_Simple_Shoot', Spellcast_Raise: 'Spell_Simple_Enter',
+  Hit_A: 'Hit_Chest', Death_A: 'Death01', Taunt: 'Punch_Enter', '1H_Melee_Attack_Chop': 'Punch_Cross', '2H_Melee_Attack_Chop': 'Sword_Attack', Walking_D_Skeletons: 'Crouch_Fwd_Loop', Spawn_Ground: 'Jump_Land', Sit_Floor_Idle: 'Sitting_Idle_Loop', Cheer: 'Idle_Talking_Loop', Sit: 'Sitting_Idle_Loop' };
+// 動畫庫的骨架命名 → 角色模型的骨架命名
+const BONE = b => b.replace('DEF-', '').replace(/^hips$/, 'pelvis').replace(/^spine00(\d)/, 'spine_0$1').replace(/^neck$/, 'neck_01').replace(/^head$/, 'Head').replace(/^shoulder([LR])/, 'clavicle$1').replace(/^upper_arm([LR])/, 'upperarm$1').replace(/^forearm([LR])/, 'lowerarm$1').replace(/^shin([LR])/, 'calf$1').replace(/^toe([LR])/, 'ball$1').replace(/^f_/, '').replace(/^(index|middle|pinky|ring|thumb)0(\d)/, '$1_0$2').replace(/L$/, '_l').replace(/R$/, '_r');
+const SCARF = [['#b5452f', '#e2b23c'], ['#3f73a8', '#c9a26a'], ['#3f8a5c', '#d8d2c0'], ['#7a56b8', '#c9d1d6']];
 
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 const smooth = k => { k = Math.max(0, Math.min(1, k)); return k * k * (3 - 2 * k); };
@@ -24,7 +26,7 @@ export async function openWorld(api) {
   const touch = matchMedia('(pointer:coarse)').matches;
   const el = document.createElement('div'); el.id = 'world';
   el.innerHTML = `<canvas class="w-cv"></canvas><div class="w-cross"></div><div class="w-vig"></div>
-    <div class="w-top"><div class="w-obj" id="w-obj"></div><button class="btn sm" id="w-exit">✕ 離開世界</button></div>
+    <div class="w-top"><div class="w-obj" id="w-obj"></div><span class="w-en" id="w-en" hidden></span><button class="btn sm" id="w-exit">✕ 離開世界</button></div>
     <div class="w-target" id="w-target" hidden><span></span><div class="bar"><i></i></div></div>
     <div class="w-zone" id="w-zone"></div>
     <canvas class="w-map" width="150" height="150"></canvas>
@@ -40,22 +42,36 @@ export async function openWorld(api) {
     <button class="w-broom" id="w-broom" title="飛天掃帚">🧹<kbd>${touch ? '' : 'R'}</kbd></button>
     <div class="w-joy" hidden><i></i></div>
     <div class="w-hint">${touch ? '左半邊拖曳移動・右半邊拖曳轉視角・右下角施放咒語<br>🧹 騎上掃帚後，往前推並抬頭或低頭來爬升、下降' : '點擊畫面開始　WASD 移動・滑鼠轉視角・Shift 奔跑・空白鍵跳躍<br>左鍵 基礎咒・Q 漂浮咒・E 烈焰咒・T 交談・Esc 釋放滑鼠<br>R 騎上／收起掃帚　飛行中：空白鍵上升・C 下降・Shift 加速'}</div>
-    <div class="w-fade on" id="w-fade"><span>正在召喚學院的居民⋯</span></div>`;
+    <div class="w-fade on" id="w-fade"><span>正在前往學院⋯</span></div>`;
   document.body.appendChild(el);
   const $ = s => el.querySelector(s), cv = $('.w-cv');
 
+  let composer = null, enT = 1;
+  const HQ = !touch; // 手機關閉陰影與光暈以維持流暢
   const R = new T.WebGLRenderer({ canvas: cv, antialias: true, powerPreference: 'high-performance' });
-  R.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
-  R.toneMapping = T.ACESFilmicToneMapping; R.toneMappingExposure = 1.25;
-  const scene = new T.Scene(), cam = new T.PerspectiveCamera(60, 1, .1, 900);
-  let skyTex; { // 黃昏天空漸層
-    const c = document.createElement('canvas'); c.width = 4; c.height = 256; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
-    gr.addColorStop(0, '#060b1a'); gr.addColorStop(.45, '#12303f'); gr.addColorStop(.62, '#2f5a63'); gr.addColorStop(.72, '#7a6a55'); gr.addColorStop(1, '#16252b');
-    g.fillStyle = gr; g.fillRect(0, 0, 4, 256); skyTex = new T.CanvasTexture(c); skyTex.colorSpace = T.SRGBColorSpace;
-  }
-  const fogOut = new T.FogExp2(0x1d3a44, .0085), fogHall = new T.FogExp2(0x0b1020, .004), hallBg = new T.Color(0x05070d);
-  scene.add(new T.HemisphereLight(0x9fc4dd, 0x1c2a22, 1.5));
-  const moon = new T.DirectionalLight(0xcfe0ff, 1.6); moon.position.set(-60, 90, 40); scene.add(moon);
+  R.setPixelRatio(Math.min(devicePixelRatio || 1, HQ ? 2 : 1.5));
+  R.toneMapping = T.ACESFilmicToneMapping; R.toneMappingExposure = 1.18;
+  R.shadowMap.enabled = HQ; R.shadowMap.type = T.PCFSoftShadowMap;
+  const scene = new T.Scene(), cam = new T.PerspectiveCamera(60, 1, .1, 1400);
+  // 黃昏天空：天頂深藍、地平線暖橘，加上被夕陽照亮底部的雲
+  const sky = (() => {
+    const c = document.createElement('canvas'); c.width = 2048; c.height = 1024; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 1024), r = rng(5);
+    gr.addColorStop(0, '#0d1830'); gr.addColorStop(.22, '#24406a'); gr.addColorStop(.38, '#5f7fa0'); gr.addColorStop(.46, '#d9a878'); gr.addColorStop(.5, '#f6c48a'); gr.addColorStop(.53, '#5b6a72'); gr.addColorStop(1, '#2a3438');
+    g.fillStyle = gr; g.fillRect(0, 0, 2048, 1024);
+    const sun = g.createRadialGradient(420, 500, 0, 420, 500, 520); sun.addColorStop(0, 'rgba(255,236,190,1)'); sun.addColorStop(.06, 'rgba(255,214,150,.9)'); sun.addColorStop(.3, 'rgba(255,170,100,.35)'); sun.addColorStop(1, 'rgba(255,150,90,0)');
+    g.fillStyle = sun; g.fillRect(0, 0, 2048, 1024);
+    for (let i = 0; i < 70; i++) { const x = 320 + r() * 1400, y = 250 + r() * 235, w = 90 + r() * 260, h = 10 + r() * 26, warm = Math.max(0, 1 - Math.abs(x - 420) / 900);
+      for (let k = 0; k < 6; k++) { const ox = (r() - .5) * w, oy = (r() - .5) * h, cg = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, w * .5); cg.addColorStop(0, `rgba(${90 + warm * 150 | 0},${86 + warm * 70 | 0},${110 - warm * 20 | 0},.34)`); cg.addColorStop(1, 'rgba(80,80,100,0)'); g.fillStyle = cg; g.save(); g.translate(x + ox, y + oy); g.scale(1, h / w * 1.6); g.translate(-x - ox, -y - oy); g.fillRect(x + ox - w, y + oy - w, w * 2, w * 2); g.restore(); }
+    }
+    const t = new T.CanvasTexture(c); t.colorSpace = T.SRGBColorSpace;
+    const m = new T.Mesh(new T.SphereGeometry(1100, 32, 20), new T.MeshBasicMaterial({ map: t, side: T.BackSide, fog: false, depthWrite: false })); m.rotation.y = -.745; m.renderOrder = -1; scene.add(m); return m;
+  })();
+  const skyTex = { dispose() {} };
+  const fogOut = new T.FogExp2(0x9a9088, .0048), fogHall = new T.FogExp2(0x0b1020, .004), hallBg = new T.Color(0x05070d);
+  const hemi = new T.HemisphereLight(0xa8c0e0, 0x5a4a38, 1.3); scene.add(hemi);
+  // 低角度的夕陽：暖色主光配冷色陰影
+  const moon = new T.DirectionalLight(0xffc48a, 2.6); const SUN = new T.Vector3(-70, 34, 42); moon.position.copy(SUN); scene.add(moon, moon.target);
+  if (HQ) { moon.castShadow = true; moon.shadow.mapSize.set(2048, 2048); const sc = moon.shadow.camera; sc.left = sc.bottom = -34; sc.right = sc.top = 34; sc.near = 1; sc.far = 260; moon.shadow.bias = -.0004; moon.shadow.normalBias = .05; }
   const outLights = new T.Group(), hallLights = new T.Group(); scene.add(outLights, hallLights);
 
   // ---------- 材質 ----------
@@ -67,15 +83,15 @@ export async function openWorld(api) {
     for (let i = 0; i < 900; i++) { g.fillStyle = `rgba(0,0,0,${rr() * .12})`; g.fillRect(rr() * 256, rr() * 256, 2, 2); }
   });
   const cob = rep => canvasTex(256, 256, g => {
-    g.fillStyle = '#23292b'; g.fillRect(0, 0, 256, 256);
-    for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) { const v = 58 + rr() * 26 | 0; g.fillStyle = `rgb(${v},${v + 4},${v - 4 + rr() * 14 | 0})`; g.fillRect(x * 43 + 2, y * 43 + 2, 39, 39); }
+    g.fillStyle = '#3a3a36'; g.fillRect(0, 0, 256, 256);
+    for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) { const v = 96 + rr() * 40 | 0; g.fillStyle = `rgb(${v + 6},${v},${v - 12 + rr() * 14 | 0})`; g.fillRect(x * 43 + 2, y * 43 + 2, 39, 39); }
   }, rep);
   const bookTex = canvasTex(256, 128, g => {
     g.fillStyle = '#2a1c10'; g.fillRect(0, 0, 256, 128); const cols = ['#7a2c2c', '#2c4a7a', '#2c6a4a', '#6a4a8a', '#8a6a2c', '#3a3a44'];
     for (let row = 0; row < 3; row++) { let x = 4; while (x < 250) { const w = 6 + rr() * 10; g.fillStyle = cols[rr() * cols.length | 0]; g.fillRect(x, row * 42 + 6 + rr() * 6, w, 34); x += w + 1; } }
   });
-  const stone = new T.MeshStandardMaterial({ map: stoneTex, roughness: .92 });
-  const slate = new T.MeshStandardMaterial({ color: 0x2c4a63, roughness: .7 });
+  const stone = new T.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneTex, bumpScale: 1.2, color: 0xd8cdbb, roughness: .92 });
+  const slate = new T.MeshStandardMaterial({ color: 0x35506a, roughness: .55, metalness: .15 });
   const wood = new T.MeshStandardMaterial({ color: 0x6a4a2c, roughness: .9 });
   const books = new T.MeshStandardMaterial({ map: bookTex, roughness: .9 });
   const glow = new T.MeshBasicMaterial({ color: 0xffd58a });
@@ -124,13 +140,14 @@ export async function openWorld(api) {
       const n = Math.sin(x * .21) * Math.cos(z * .17) * .5 + .5;
       let burn = 0; for (const [cx, cz] of CAMPS.slice(0, 2)) burn = Math.max(burn, 1 - Math.hypot(x - cx, z - cz) / 22);
       burn = Math.max(0, burn);
-      c.setRGB(.10 + n * .06 + h * .004 + burn * .08, (.22 + n * .10 + h * .006) * (1 - burn * .6), .12 + n * .04 - burn * .04); col.set([c.r, c.g, c.b], i * 3);
+      c.setRGB(.20 + n * .10 + h * .006 + burn * .1, (.36 + n * .14 + h * .008) * (1 - burn * .6), .14 + n * .05 - burn * .05); col.set([c.r, c.g, c.b], i * 3);
     }
     g.setAttribute('color', new T.BufferAttribute(col, 3)); g.computeVertexNormals();
-    scene.add(new T.Mesh(g, new T.MeshStandardMaterial({ vertexColors: true, roughness: 1 })));
-    plane(72, 84, new T.MeshStandardMaterial({ map: cob(9), roughness: .95 }), 0, .03, -6);
+    const grassTex = canvasTex(512, 512, c2 => { c2.fillStyle = '#c8c8c8'; c2.fillRect(0, 0, 512, 512); for (let i = 0; i < 26000; i++) { const v = 120 + rr() * 135 | 0; c2.fillStyle = `rgba(${v},${v},${v * .9 | 0},.5)`; c2.fillRect(rr() * 512, rr() * 512, 1 + rr() * 2, 2 + rr() * 5); } }, 90);
+    const ground = new T.Mesh(g, new T.MeshStandardMaterial({ vertexColors: true, map: grassTex, bumpMap: grassTex, bumpScale: .6, roughness: 1 })); ground.userData.noCast = true; scene.add(ground);
+    plane(72, 84, new T.MeshStandardMaterial({ map: cob(26), roughness: .95 }), 0, .03, -6);
     plane(7, 62, new T.MeshStandardMaterial({ color: 0x4a4436, roughness: 1 }), 0, .04, 66);
-    const lake = new T.Mesh(new T.CircleGeometry(22, 48), new T.MeshStandardMaterial({ color: 0x1c4a66, metalness: .7, roughness: .15, transparent: true, opacity: .9 }));
+    const lake = new T.Mesh(new T.CircleGeometry(22, 48), new T.MeshStandardMaterial({ color: 0x3a6a86, metalness: .85, roughness: .08, transparent: true, opacity: .92, emissive: 0x6a4a30, emissiveIntensity: .25 }));
     lake.rotation.x = -Math.PI / 2; lake.position.set(66, .06, 34); scene.add(lake); circles.push([66, 34, 21, 1]);
   }
   // ---------- 城堡外觀 ----------
@@ -149,7 +166,7 @@ export async function openWorld(api) {
   // ---------- 樹林 ----------
   {
     const N = 260, r = rng(42), trunk = new T.InstancedMesh(new T.CylinderGeometry(.22, .34, 3, 6), wood, N),
-      leaf = new T.InstancedMesh(new T.ConeGeometry(2.1, 5.5, 7), new T.MeshStandardMaterial({ color: 0x1f4a36, roughness: 1, flatShading: true }), N * 2),
+      leaf = new T.InstancedMesh(new T.ConeGeometry(2.1, 5.5, 7), new T.MeshStandardMaterial({ color: 0x2f5a3c, roughness: 1, flatShading: true }), N * 2),
       m = new T.Matrix4(), q = new T.Quaternion(), v = new T.Vector3(), s = new T.Vector3();
     let n = 0;
     while (n < N) {
@@ -171,12 +188,12 @@ export async function openWorld(api) {
   { const b = new T.Mesh(new T.BoxGeometry(1.6, .9, 1), wood); b.position.y = .45; const lid = new T.Mesh(new T.CylinderGeometry(.5, .5, 1.6, 12, 1, false, 0, Math.PI), wood); lid.rotation.z = Math.PI / 2; lid.position.y = .9;
     const band = new T.Mesh(new T.BoxGeometry(.25, 1.45, 1.06), gold); band.position.y = .7; chest.add(b, lid, band); chest.position.copy(chestPos); scene.add(chest);
     if (!api.done.chest) { const l = new T.PointLight(0xffd070, 40, 18); l.position.set(0, 2, 0); chest.add(l); chest.userData.light = l; } }
-  // 骷髏營地：營火、殘牆、帳篷
+  // 遊魂營地：營火、殘牆、帳篷
   const fires = [];
   for (const [cx, cz] of CAMPS.slice(0, 2)) {
-    const y = H(cx, cz), f = new T.Mesh(new T.ConeGeometry(.7, 1.8, 7), new T.MeshBasicMaterial({ color: 0xff8a30 })); f.position.set(cx, y + .9, cz); scene.add(f);
+    const y = H(cx, cz), f = new T.Mesh(new T.ConeGeometry(.45, 1.1, 7), new T.MeshBasicMaterial({ color: 0xff8a30 })); f.position.set(cx, y + .55, cz); scene.add(f);
     for (let i = 0; i < 5; i++) { const lg = new T.Mesh(new T.CylinderGeometry(.12, .12, 1.6, 5), wood); lg.position.set(cx, y + .15, cz); lg.rotation.set(1.5708, 0, i * 1.26); scene.add(lg); }
-    const l = new T.PointLight(0xff7a30, 160, 40, 1.6); l.position.set(cx, y + 2.2, cz); outLights.add(l); fires.push({ f, l }); circles.push([cx, cz, 1, y + 2.5]);
+    const l = new T.PointLight(0xff7a30, 60, 30, 1.8); l.position.set(cx, y + 1.6, cz); outLights.add(l); fires.push({ f, l }); circles.push([cx, cz, 1, y + 2.5]);
     for (const [dx, dz, w, d] of [[-8, -5, 6, 1.2], [7, -8, 1.2, 7], [9, 6, 5, 1.2]]) { const m = box(w, 2.5 + (dx & 1), d, cx + dx, cz + dz); m.position.y += H(cx + dx, cz + dz) - .3; boxes[boxes.length - 1][4] += H(cx + dx, cz + dz); }
     for (const [dx, dz] of [[-6, 7], [3, 10]]) { const t = new T.Mesh(new T.ConeGeometry(2.6, 3.4, 4), new T.MeshStandardMaterial({ color: 0x4a3a3a, roughness: 1, flatShading: true })); t.position.set(cx + dx, H(cx + dx, cz + dz) + 1.7, cz + dz); t.rotation.y = .6; scene.add(t); circles.push([cx + dx, cz + dz, 2, H(cx + dx, cz + dz) + 3.6]); }
   }
@@ -184,8 +201,8 @@ export async function openWorld(api) {
   // ---------- 星象大廳（城堡內部）----------
   const orrery = new T.Group(), crystals = [];
   {
-    plane(30, 72, new T.MeshStandardMaterial({ map: cob(7), roughness: .6, metalness: .2 }), HX, 0, 0);
-    plane(4.5, 60, houseMat, HX, .02, 2);
+    plane(30, 72, new T.MeshStandardMaterial({ map: cob(18), roughness: .6, metalness: .2 }), HX, 0, 0);
+    plane(4.5, 60, new T.MeshStandardMaterial({ color: new T.Color(api.color || 0x3f73a8).multiplyScalar(.35), roughness: 1 }), HX, .02, 2);
     const ceil = plane(30, 72, new T.MeshStandardMaterial({ color: 0x070b1c, roughness: 1, side: T.BackSide }), HX, 14, 0); ceil.material.side = T.DoubleSide;
     box(1.5, 14, 75, HX - 15.75, 0); box(1.5, 14, 75, HX + 15.75, 0); box(33, 14, 1.5, HX, -36.75);
     box(12.5, 14, 1.5, HX - 9.25, 36.75); box(12.5, 14, 1.5, HX + 9.25, 36.75); box(6, 6, 1.5, HX, 36.75, stone, 8, false);
@@ -217,15 +234,15 @@ export async function openWorld(api) {
   // ---------- 星空與螢火 ----------
   { const g = new T.BufferGeometry(), a = new Float32Array(900 * 3), r = rng(3);
     for (let i = 0; i < 900; i++) { const th = r() * 6.283, ph = r() * 1.3, d = 600; a.set([Math.cos(th) * Math.sin(ph + .2) * d, Math.cos(ph + .2) * d * .9 + 20, Math.sin(th) * Math.sin(ph + .2) * d], i * 3); }
-    g.setAttribute('position', new T.BufferAttribute(a, 3)); scene.add(new T.Points(g, new T.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, fog: false, transparent: true, opacity: .8 }))); }
+    g.setAttribute('position', new T.BufferAttribute(a, 3)); scene.add(new T.Points(g, new T.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, fog: false, transparent: true, opacity: .35 }))); }
   const dotTex = canvasTex(64, 64, g => { const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, '#fff'); gr.addColorStop(.35, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); });
-  const flies = new T.Points(new T.BufferGeometry(), new T.PointsMaterial({ color: 0xd8ff9a, size: .4, map: dotTex, transparent: true, opacity: .9, blending: T.AdditiveBlending, depthWrite: false }));
+  const flies = new T.Points(new T.BufferGeometry(), new T.PointsMaterial({ color: 0xffe9a8, size: .16, map: dotTex, transparent: true, opacity: .8, blending: T.AdditiveBlending, depthWrite: false }));
   { const a = new Float32Array(260 * 3), r = rng(9); for (let i = 0; i < 260; i++) { const x = (r() - .5) * 320, z = (r() - .5) * 320; a.set([x, H(x, z) + .6 + r() * 3, z], i * 3); } flies.geometry.setAttribute('position', new T.BufferAttribute(a, 3)); flies.userData.base = a.slice(); scene.add(flies); }
 
   // ---------- 粒子池 ----------
   const PN = 800, pPos = new Float32Array(PN * 3), pCol = new Float32Array(PN * 3), pVel = new Float32Array(PN * 3), pLife = new Float32Array(PN), pMax = new Float32Array(PN), pBase = new Float32Array(PN * 3);
   const pGeo = new T.BufferGeometry(); pGeo.setAttribute('position', new T.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new T.BufferAttribute(pCol, 3));
-  const parts = new T.Points(pGeo, new T.PointsMaterial({ size: .55, map: dotTex, vertexColors: true, blending: T.AdditiveBlending, depthWrite: false, transparent: true })); parts.frustumCulled = false; scene.add(parts);
+  const parts = new T.Points(pGeo, new T.PointsMaterial({ size: .26, map: dotTex, vertexColors: true, blending: T.AdditiveBlending, depthWrite: false, transparent: true })); parts.frustumCulled = false; scene.add(parts);
   let pi = 0; const tc = new T.Color();
   function puff(p, color, n = 20, speed = 4, life = .7, up = 0) {
     tc.set(color);
@@ -236,39 +253,122 @@ export async function openWorld(api) {
   // ---------- 角色模型 ----------
   const lib = {};
   try {
-    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js'), SU = await import('three/addons/utils/SkeletonUtils.js'), ld = new GLTFLoader();
-    const timeout = new Promise(r => setTimeout(r, 25000));
-    await Promise.race([timeout, Promise.allSettled(Object.entries(MODELS).map(async ([k, u]) => { const g = await ld.loadAsync(u); lib[k] = { scene: g.scene, clips: Object.fromEntries(g.animations.map(c => [c.name, c])), clone: SU.clone }; }))]);
-  } catch (e) { console.warn('模型載入失敗，改用簡易角色', e); }
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js'), SU = await import('three/addons/utils/SkeletonUtils.js');
+    const mgr = new T.LoadingManager(); mgr.setURLModifier(u => /_Normal|_Roughness/.test(u) ? PIXEL : u); // 省下約 20MB 的法線貼圖
+    const ld = new GLTFLoader(mgr), timeout = new Promise(r => setTimeout(r, 30000));
+    await Promise.race([timeout, Promise.allSettled(Object.entries(MODELS).map(async ([k, u]) => { lib[k] = await ld.loadAsync(u); }))]);
+    if (lib.anim && lib.male && lib.female) {
+      lib.clone = SU.clone; lib.clips = {};
+      for (const c of lib.anim.animations) lib.clips[c.name] = new T.AnimationClip(c.name, c.duration, c.tracks.filter(t => (/quaternion$/.test(t.name) && !t.name.startsWith('root')) || t.name === 'DEF-hips.position').map(t => { const [b, pr] = t.name.split('.'), k = t.clone(); k.name = BONE(b) + '.' + pr; return k; }));
+      for (const k of ['male', 'female']) prepBase(lib[k]);
+    } else lib.male = null;
+  } catch (e) { console.warn('模型載入失敗，改用簡易角色', e); lib.male = null; }
   if (!el.isConnected) return;
+  // 依骨架權重替身體「穿上」制服：頭、手維持膚色，其餘換成布料顏色；並量出頭、肩、頸的位置給頭髮與長袍使用
+  function prepBase(g) {
+    const sc = g.scene; sc.updateMatrixWorld(true); let body, eyes;
+    sc.traverse(o => { if (o.isSkinnedMesh) { o.frustumCulled = false; for (const k of ['normalMap', 'roughnessMap', 'metalnessMap']) o.material[k] = null; o.material.roughness = .75; o.material.metalness = 0; if (/Superhero/.test(o.material.name)) body = o; if (/Eyes/.test(o.material.name)) eyes = o; } });
+    const geo = body.geometry, pos = geo.attributes.position, si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight, bones = body.skeleton.bones, col = new Float32Array(pos.count * 4);
+    const cloth = bones.map(b => { const nm = b.name; if (/^(Head|neck)/.test(nm) || /hand|index|middle|pinky|ring|thumb/.test(nm)) return null; if (/foot|ball/.test(nm)) return [.035, .028, .024]; if (/thigh|calf/.test(nm)) return [.05, .05, .06]; return [.07, .07, .085]; });
+    const head = bones.findIndex(b => b.name === 'Head'), hb = new T.Box3(), v = new T.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      let a = 0, r = 0, gg = 0, b = 0, hw = 0;
+      for (let k = 0; k < 4; k++) { const bi = si.getComponent(i, k), w = sw.getComponent(i, k), c = cloth[bi]; if (bi === head) hw += w; if (c) { a += w; r += c[0] * w; gg += c[1] * w; b += c[2] * w; } }
+      const m = smooth((a - .35) / .3); col.set(a > 0 ? [r / a, gg / a, b / a, m] : [0, 0, 0, 0], i * 4);
+      if (hw > .85) hb.expandByPoint(v.fromBufferAttribute(pos, i).applyMatrix4(body.matrixWorld));
+    }
+    geo.setAttribute('color', new T.BufferAttribute(col, 4));
+    const mk = extra => { const m = body.material.clone(); m.vertexColors = true; Object.assign(m, extra); m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', 'diffuseColor.rgb = mix( diffuseColor.rgb, vColor.rgb, vColor.a );'); }; return m; };
+    const wp = nm => sc.getObjectByName(nm).getWorldPosition(new T.Vector3());
+    g.base = { bodyName: body.name, eyesName: eyes && eyes.name, mat: mk({}), head: hb, neck: wp('neck_01'), sh: wp('upperarm_l').x, shY: wp('upperarm_l').y, spZ: wp('spine_03').z,
+      ghost: new T.MeshStandardMaterial({ color: 0x0c0714, emissive: 0x4a1f8a, emissiveIntensity: .55, roughness: .6, transparent: true, opacity: .9 }) };
+  }
+  const striped = (a, b) => canvasTex(64, 8, g => { for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? b : a; g.fillRect(i * 8, 0, 8, 8); } });
+  const clothMat = (color, o = {}) => new T.MeshStandardMaterial({ color, roughness: .92, side: T.DoubleSide, ...o });
+  // 長袍：從肩膀垂到小腿的披風式外袍，外層深色、內襯是學院色
+  function cloakGeo(B, len, spread) {
+    const RO = 14, CO = 30, pos = [], idx = [], uv = [];
+    for (let i = 0; i <= RO; i++) { const vv = i / RO, open = smooth(vv / .14);
+      for (let j = 0; j <= CO; j++) { const th = (j / CO * 2 - 1) * spread, fold = 1 + Math.sin(th * 7) * .07 * vv;
+        const rx = (.085 + (B.sh * .97 - .085) * open + B.sh * .85 * Math.pow(vv, 1.4)) * fold, rz = (.09 + .085 * open + .2 * Math.pow(vv, 1.2)) * fold;
+        pos.push(Math.sin(th) * rx, -vv * len + .05 * (1 - open), -Math.cos(th) * rz); uv.push(j / CO, vv); } }
+    for (let i = 0; i < RO; i++) for (let j = 0; j < CO; j++) { const a = i * (CO + 1) + j, b = a + CO + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+    const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals(); return g;
+  }
+  // 頭髮：包住頭頂與後腦的殼，前額與臉的部分往內收
+  function hairGeo(style) {
+    const g = new T.SphereGeometry(1, 28, 20), p = g.attributes.position, v = new T.Vector3();
+    for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); const { x, y, z } = v;
+      const line = z > .25 ? .38 - Math.abs(x) * .15 : z > -.2 ? -.25 : style === 'long' ? -1 : -.72; // 髮際線高度：前額、兩側、後腦
+      let k = 1 + .035 * Math.sin(x * 9 + y * 5) * Math.cos(z * 7);
+      if (y < line) k = .8; else if (style === 'long' && y < 0 && z < .1) { v.y = y * 2.5; k = 1.02 + .1 * -y; }
+      else if (style === 'bob' && y < .1 && z < .3) { v.y = y * 1.5; k = 1.06; }
+      v.x *= k; v.z *= k; if (y >= line && !(style !== 'short' && y < 0)) v.y *= k; p.setXYZ(i, v.x, v.y, v.z); }
+    g.computeVertexNormals(); return g;
+  }
+  const hairGeos = {}, HAIRS = [0x2a1a10, 0x14100c, 0x6a4a24, 0x8a3a1c, 0xb8904a, 0x3a3a40];
+  function dress(m, B, o) {
+    const add = (bone, obj) => { m.add(obj); obj.updateMatrixWorld(true); m.getObjectByName(bone).attach(obj); obj.traverse(q => { if (q.isMesh) q.castShadow = HQ; }); return obj; };
+    const hc = B.head.getCenter(new T.Vector3()), hs = B.head.getSize(new T.Vector3()), top = B.head.max.y;
+    if (o.hair !== 'none') { const st = o.hair || 'short', hm = new T.Mesh(hairGeos[st] || (hairGeos[st] = hairGeo(st)), new T.MeshStandardMaterial({ color: o.hairColor ?? HAIRS[0], roughness: .55 }));
+      const ry = hs.x * .62; hm.scale.set(hs.x * .54, ry, hs.z * .55); hm.position.set(hc.x, top - ry * .9, hc.z - hs.z * .03); add('Head', hm); }
+    if (o.hat) { const hat = new T.Group(), hmat = clothMat(o.robe ?? 0x15151c), cone = new T.Mesh(new T.ConeGeometry(hs.x * .5, .42, 16, 4), hmat), brim = new T.Mesh(new T.CylinderGeometry(hs.x * 1.15, hs.x * 1.2, .02, 24), hmat), band = new T.Mesh(new T.CylinderGeometry(hs.x * .5, hs.x * .52, .05, 16), clothMat(o.lining));
+      cone.position.y = .21; cone.rotation.z = .12; band.position.y = .035; hat.add(cone, brim, band); hat.position.set(hc.x, top - .035, hc.z - .01); hat.rotation.x = -.12; add('Head', hat); }
+    if (o.scarf) { const smat = new T.MeshStandardMaterial({ map: striped(o.scarf[0], o.scarf[1]), roughness: 1 }); smat.map.repeat.set(3, 1);
+      const sc = new T.Mesh(new T.TorusGeometry(.078, .034, 8, 20), smat); sc.rotation.x = 1.5708; sc.scale.set(1, .92, 1.15); sc.position.set(B.neck.x, B.neck.y + .035, B.neck.z + .012); add('neck_01', sc);
+      const tail = new T.Mesh(new T.BoxGeometry(.085, .34, .018), smat); tail.position.set(.06, B.neck.y - .15, B.neck.z + .135); tail.rotation.x = -.1; add('spine_03', tail); }
+    const len = B.shY - (o.long ? .1 : .2), cg = cloakGeo(B, len, o.long ? 3.02 : 2.9), holder = new T.Group(), sway = new T.Group();
+    // 袖子：上臂與前臂各一段，前臂往袖口放寬
+    const P3 = nm => m.getObjectByName(nm).getWorldPosition(new T.Vector3()), rmat = clothMat(o.robe ?? 0x121218), UP = new T.Vector3(0, 1, 0);
+    const tube = (bone, a, b, r1, r2) => { const d = b.clone().sub(a), L = d.length(), g = new T.Mesh(new T.CylinderGeometry(r2, r1, L, 10, 1, true), rmat); g.position.copy(a).addScaledVector(d, .5); g.quaternion.setFromUnitVectors(UP, d.normalize()); add(bone, g); };
+    for (const sd of ['l', 'r']) { const u = P3('upperarm_' + sd), e = P3('lowerarm_' + sd), h = P3('hand_' + sd); tube('upperarm_' + sd, u.clone().lerp(e, -.08), e, .078, .066); tube('lowerarm_' + sd, e.clone().lerp(h, -.06), e.clone().lerp(h, .93), .066, .105); }
+    const outer = new T.Mesh(cg, rmat), inner = new T.Mesh(cg, clothMat(o.lining ?? 0x444444, { roughness: .8 })); inner.scale.set(.975, 1, .96);
+    sway.add(outer, inner); holder.add(sway); holder.position.set(0, B.shY + .045, B.spZ + .035); m.add(holder); outer.castShadow = inner.castShadow = HQ;
+    // 長袍只跟著上身的位置移動、少量跟著傾斜，身體前彎時下襬才不會整片翻起來
+    const bone = m.getObjectByName('spine_03'); return { sway, holder, bone, m, off: bone.worldToLocal(holder.position.clone()), q0: bone.getWorldQuaternion(new T.Quaternion()).invert(), k: .3 };
+  }
   const actors = [];
   function label(text, color = '#f3dc9a') { const c = document.createElement('canvas'); c.width = 256; c.height = 64; const g = c.getContext('2d'); g.font = '600 30px "Noto Serif TC",serif'; g.textAlign = 'center'; g.lineWidth = 6; g.strokeStyle = '#000c'; g.strokeText(text, 128, 42); g.fillStyle = color; g.fillText(text, 128, 42);
-    const t = new T.CanvasTexture(c); t.colorSpace = T.SRGBColorSpace; const s = new T.Sprite(new T.SpriteMaterial({ map: t, transparent: true, depthWrite: false })); s.scale.set(2.6, .65, 1); return s; }
-  // 建立角色：有模型時用骨架動畫，否則退回簡易造型
+    const t = new T.CanvasTexture(c); t.colorSpace = T.SRGBColorSpace; const s = new T.Sprite(new T.SpriteMaterial({ map: t, transparent: true, depthWrite: false })); s.scale.set(1.7, .425, 1); return s; }
+  // 建立角色：有模型時用骨架動畫並穿上長袍，否則退回簡易造型
   function actor(kind, o = {}) {
-    const root = new T.Group(), L = lib[kind === 'prof' ? 'mage' : kind], a = { root, cur: '', lock: 0, mixer: null, acts: {}, clips: null };
+    const root = new T.Group(), L = lib.male ? lib[o.female ? 'female' : 'male'] : null, a = { root, cur: '', lock: 0, mixer: null, acts: {}, clips: null, sway: null, sp: 0 }, sc = o.scale || 1;
     if (L) {
-      const m = L.clone(L.scene); m.scale.setScalar(o.scale || .95); root.add(m);
-      m.traverse(n => { if (HIDE[kind].includes(n.name)) n.visible = false; if (n.isMesh) { n.frustumCulled = false; if (o.tint) { n.material = n.material.clone(); n.material.color.set(o.tint); } } });
-      a.mixer = new T.AnimationMixer(m); a.clips = L.clips; a.mats = []; if (o.flash) m.traverse(n => { if (n.isMesh) { if (!o.tint) n.material = n.material.clone(); a.mats.push(n.material); } });
+      const m = lib.clone(L.scene), B = L.base, ghost = kind === 'skel'; m.updateMatrixWorld(true);
+      const body = m.getObjectByName(B.bodyName); body.material = ghost ? B.ghost.clone() : B.mat; a.mats = ghost ? [body.material] : [];
+      if (ghost) { body.material.userData.em = o.big ? 0x8a1f3a : 0x4a1f8a; body.material.emissive.setHex(body.material.userData.em); const e = m.getObjectByName(B.eyesName); if (e) e.material = new T.MeshBasicMaterial({ color: o.big ? 0xff5030 : 0xb080ff }); m.traverse(q => { if (q.isSkinnedMesh && /Hair/.test(q.material.name)) q.visible = false; }); }
+      a.robe = dress(m, B, ghost ? { hair: 'none', robe: 0x08060c, lining: o.big ? 0x5a1020 : 0x2a1450, long: true } : o); a.sway = a.robe.sway;
+      m.traverse(q => { if (q.isSkinnedMesh) { q.frustumCulled = false; q.castShadow = HQ; } });
+      m.scale.setScalar(sc); root.add(m); a.mixer = new T.AnimationMixer(m); a.clips = lib.clips;
     } else {
-      const col = o.tint || (kind === 'skel' ? 0xd8d2c0 : 0x1b1d24), mat = new T.MeshStandardMaterial({ color: col, roughness: .85 }); a.mats = [mat];
-      const b = new T.Mesh(new T.CylinderGeometry(.24, .5, 1.25, 10), mat); b.position.y = .98; const h = new T.Mesh(new T.SphereGeometry(.2, 12, 8), new T.MeshStandardMaterial({ color: kind === 'skel' ? 0xe8e2d0 : 0xd9a47c })); h.position.y = 1.8; root.add(b, h);
+      const col = o.tint || (kind === 'skel' ? 0x2a1450 : 0x1b1d24), mat = new T.MeshStandardMaterial({ color: col, roughness: .85 }); a.mats = [mat];
+      const b = new T.Mesh(new T.CylinderGeometry(.2, .36, 1.2, 10), mat); b.position.y = .8; const h = new T.Mesh(new T.SphereGeometry(.15, 12, 8), new T.MeshStandardMaterial({ color: kind === 'skel' ? 0x6a4ab0 : 0xd9a47c })); h.position.y = 1.58; root.add(b, h);
     }
-    if (o.name) { const s = label(o.name, o.nameColor); s.position.y = (o.scale || .95) * 2.75; root.add(s); }
-    a.play = (n, once = false, fade = .18) => {
-      if (!a.mixer || !a.clips[n] || (a.cur === n && !once)) return;
+    if (o.name) { const s = label(o.name, o.nameColor); s.position.y = sc * 2.05; root.add(s); }
+    a.play = (n, once = false, fade = .2) => {
+      n = AN[n] || n; if (!a.mixer || !a.clips[n] || (a.cur === n && !once)) return;
       const act = a.acts[n] || (a.acts[n] = a.mixer.clipAction(a.clips[n]));
-      act.reset(); act.setLoop(once ? T.LoopOnce : T.LoopRepeat, Infinity); act.clampWhenFinished = once; act.fadeIn(fade).play();
+      act.reset(); act.timeScale = 1; act.setLoop(once ? T.LoopOnce : T.LoopRepeat, Infinity); act.clampWhenFinished = once; act.fadeIn(fade).play();
       if (a.curA && a.curA !== act) a.curA.fadeOut(fade); a.curA = act; a.cur = n;
     };
+    a.rate = v => { if (a.curA) a.curA.timeScale = v; };
     a.play('Idle'); scene.add(root); actors.push(a); return a;
   }
+  const qa = new T.Quaternion(), qb = new T.Quaternion(), va = new T.Vector3();
+  function robeFollow(a, dt) {
+    const r = a.robe; a.root.updateMatrixWorld(true);
+    r.holder.position.copy(r.m.worldToLocal(r.bone.localToWorld(va.copy(r.off))));
+    r.k += ((a.cur === 'Death01' ? 1 : a.cur === 'Sitting_Idle_Loop' ? .6 : .3) - r.k) * Math.min(1, dt * 5);
+    r.m.getWorldQuaternion(qa).invert().multiply(r.bone.getWorldQuaternion(qb)).multiply(r.q0); r.holder.quaternion.identity().slerp(qa, r.k);
+  }
+  // 依移動速度挑選走、跑、衝刺動作，並讓腳步頻率跟上速度
+  const locomote = (a, v) => { if (v < .2) { a.play('Idle'); return; } if (v < 2.6) { a.play('Walking_A'); a.rate(v / 1.5); } else if (v < 5.6) { a.play('Running_A'); a.rate(v / 3.7); } else { a.play('Sprint'); a.rate(v / 6.6); } };
   const face = (root, x, z, dt, k = 10) => { let da = Math.atan2(x, z) - root.rotation.y; da = Math.atan2(Math.sin(da), Math.cos(da)); root.rotation.y += da * Math.min(1, dt * k); };
 
   // ---------- 玩家 ----------
-  const pa = actor('mage'), player = pa.root; player.position.set(0, 0, 16); player.rotation.y = Math.PI;
-  const blob = new T.Mesh(new T.CircleGeometry(.55, 16), new T.MeshBasicMaterial({ color: 0, transparent: true, opacity: .35, depthWrite: false })); blob.rotation.x = -1.5708; scene.add(blob);
+  const hi = Math.max(0, SCARF.findIndex(c => c[0] === String(api.color).toLowerCase()));
+  const pa = actor('mage', { lining: api.color, scarf: [SCARF[hi][0], SCARF[hi][1]], hair: 'short', hairColor: HAIRS[0] }), player = pa.root; player.position.set(0, 0, 16); player.rotation.y = Math.PI;
+  const blob = new T.Mesh(new T.CircleGeometry(.4, 16), new T.MeshBasicMaterial({ color: 0, transparent: true, opacity: HQ ? .12 : .35, depthWrite: false })); blob.rotation.x = -1.5708; scene.add(blob);
   const P = { vy: 0, vx: 0, vz: 0, roll: 0, fly: false, ground: true, hp: 100, hurtAt: -9, dead: 0, door: 0 };
   player.rotation.order = 'YXZ';
   // 飛天掃帚
@@ -276,9 +376,9 @@ export async function openWorld(api) {
     const stick = new T.Mesh(new T.CylinderGeometry(.04, .06, 2.5, 8), wood); stick.rotation.x = 1.5708; stick.position.z = .25;
     const br = new T.Mesh(new T.ConeGeometry(.3, 1.15, 10), new T.MeshStandardMaterial({ color: 0xb8893a, roughness: 1, flatShading: true })); br.rotation.x = 1.5708; br.position.z = -1.42;
     const band = new T.Mesh(new T.TorusGeometry(.11, .035, 8, 16), gold); band.position.z = -.95;
-    broom.add(stick, br, band); broom.position.y = .5; broom.visible = false; player.add(broom);
+    broom.add(stick, br, band); broom.scale.setScalar(.8); broom.position.y = .42; broom.visible = false; player.add(broom);
   }
-  const SIT = pa.clips ? ['Sit_Chair_Idle', 'Sit_Chair_Pose', 'Jump_Idle'].find(c => pa.clips[c]) : 'Idle';
+  const SIT = 'Sit';
   function setFly(v) {
     if (P.fly === v) return; P.fly = v; broom.visible = v; $('#w-broom').classList.toggle('on', v);
     puff(tmp.copy(player.position).setY(player.position.y + .7), 0xffe0a0, 40, 5, .8, 1);
@@ -304,16 +404,16 @@ export async function openWorld(api) {
     const a = new T.Mesh(new T.BoxGeometry(1.5, .14, .14), mat); a.position.y = 1.62;
     const post = new T.Mesh(new T.CylinderGeometry(.07, .07, .7, 6), wood); post.position.y = .35;
     const sh = new T.Mesh(new T.CircleGeometry(.36, 10), new T.MeshStandardMaterial({ color: 0x2c4a63, metalness: .5, roughness: .4, side: T.DoubleSide })); sh.position.set(0, 1.3, .31);
-    g.add(b, h, a, post, sh); g.position.set(x, 0, z); scene.add(g); circles.push([x, z, .5, 2.6]);
-    targets.push({ kind: 'dummy', id, name: '訓練假人', root: g, mats: [mat], hp: 6, max: 6, lev: 0, y: 0, wob: 0, dead: 0, flash: 0, ch: 1.4 });
+    g.add(b, h, a, post, sh); g.scale.setScalar(.82); g.position.set(x, 0, z); scene.add(g); circles.push([x, z, .5, 2.6]);
+    targets.push({ kind: 'dummy', id, name: '訓練假人', root: g, mats: [mat], hp: 6, max: 6, lev: 0, y: 0, wob: 0, dead: 0, flash: 0, ch: 1.15 });
   });
   const er = rng(77);
   const spawnSkel = (cx, cz, big) => {
     const a = er() * 6.283, d = 4 + er() * 6, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
-    const ac = actor('skel', { scale: big ? 1.5 : 1, tint: big ? 0xff9a8a : null, flash: true, name: big ? '骷髏隊長' : '遊蕩骷髏', nameColor: '#ff9a8a' });
+    const ac = actor('skel', { scale: big ? 1.25 : 1, big, name: big ? '暗影統領' : '暗影遊魂', nameColor: big ? '#ff9a8a' : '#c9a8ff' });
     ac.root.position.set(x, H(x, z), z);
-    targets.push({ kind: 'enemy', name: big ? '骷髏隊長' : '遊蕩骷髏', a: ac, root: ac.root, mats: ac.mats, home: new T.Vector3(x, 0, z), goal: new T.Vector3(x, 0, z), big,
-      hp: big ? 14 : 5, max: big ? 14 : 5, lev: 0, y: 0, dead: 0, flash: 0, state: 'idle', t: er() * 4, struck: false, ch: big ? 1.4 : .95 });
+    targets.push({ kind: 'enemy', name: big ? '暗影統領' : '暗影遊魂', a: ac, root: ac.root, mats: ac.mats, home: new T.Vector3(x, 0, z), goal: new T.Vector3(x, 0, z), big,
+      hp: big ? 14 : 5, max: big ? 14 : 5, lev: 0, y: 0, dead: 0, flash: 0, state: 'idle', t: er() * 4, struck: false, ch: big ? 1.3 : 1.05 });
   };
   for (let i = 0; i < 4; i++) spawnSkel(CAMPS[0][0], CAMPS[0][1], i === 0);
   for (let i = 0; i < 3; i++) spawnSkel(CAMPS[1][0], CAMPS[1][1], false);
@@ -321,24 +421,28 @@ export async function openWorld(api) {
   const ring = new T.Mesh(new T.RingGeometry(.75, .9, 32), new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .8, side: T.DoubleSide, depthWrite: false })); ring.rotation.x = -1.5708; ring.visible = false; scene.add(ring);
 
   // ---------- 學生與教授 ----------
-  const TIPS = ['聽說立石陣那邊藏著寶箱，不過最近有骷髏在附近遊蕩。', '漂浮咒可以讓敵人動彈不得，這時候攻擊傷害會加倍喔。', '東北邊森林裡的營火？那是骷髏的營地，小心那個大隻的隊長。', '我今天的作業還沒寫完⋯你的任務之書清空了嗎？', '城堡大門是開著的，星象大廳的水晶燈晚上特別漂亮。', '先做最難的那件事，剩下的一整天都會輕鬆很多。', '被骷髏打倒也沒關係，會在庭院醒過來的。', '每天來找教授報到，有完成現實任務的話會有獎勵。', '湖邊很適合發呆，但別忘了你答應自己要做的事。', '一次只專心做一件事，這是我學到最有用的咒語。'];
+  const TIPS = ['聽說立石陣那邊藏著寶箱，不過最近有暗影遊魂在附近徘徊。', '漂浮咒可以讓敵人動彈不得，這時候攻擊傷害會加倍喔。', '東北邊森林裡的營火？那裡聚集了暗影遊魂，小心那個高大的統領。', '我今天的作業還沒寫完⋯你的任務之書清空了嗎？', '城堡大門是開著的，星象大廳的水晶燈晚上特別漂亮。', '先做最難的那件事，剩下的一整天都會輕鬆很多。', '被遊魂打倒也沒關係，會在庭院醒過來的。', '每天來找教授報到，有完成現實任務的話會有獎勵。', '湖邊很適合發呆，但別忘了你答應自己要做的事。', '一次只專心做一件事，這是我學到最有用的咒語。'];
   const npcs = [];
-  const npc = (kind, name, zone, pts, o = {}) => {
-    const a = actor(kind, { name, nameColor: o.prof ? '#c9a8ff' : '#bfe6ff', tint: o.tint, scale: o.scale });
+  let npcN = 0;
+  const npc = (name, zone, pts, o = {}) => {
+    const k = npcN++, hs = SCARF[k % 4];
+    const a = actor('npc', { name, nameColor: o.prof ? '#c9a8ff' : '#bfe6ff', female: o.female, scale: o.scale, hair: o.hair || (o.female ? ['long', 'bob'][k % 2] : 'short'), hairColor: o.hairColor ?? HAIRS[(k * 5 + 1) % HAIRS.length],
+      ...(o.prof ? { hat: true, long: true, robe: o.robe, lining: o.lining } : { lining: hs[0], scarf: hs }) });
     a.root.position.set(pts[0][0], H(pts[0][0], pts[0][1]), pts[0][1]); if (o.rot != null) a.root.rotation.y = o.rot;
     npcs.push({ a, name, zone, pts, i: 0, wait: 1 + Math.random() * 3, prof: o.prof, pose: o.pose, rot: o.rot, line: Math.random() * TIPS.length | 0 });
   };
-  npc('prof', '葛雷姆教授', 'out', [[-17, -19]], { prof: 'grym', tint: 0xffb0a0, scale: 1.12, rot: 1.2 });
-  npc('rogue', '學生 艾琳', 'out', [[-22, 12], [-22, -32], [-5, -38], [-5, 12]]);
-  npc('rogue', '學生 諾亞', 'out', [[24, 22], [24, -26], [12, -36]], { tint: 0xa0c8ff });
-  npc('mage', '學生 里歐', 'out', [[0, 44], [3, 92], [-3, 60]], { tint: 0xb8ffb8, scale: .88 });
-  npc('rogue', '學生 米拉', 'out', [[30, 30]], { tint: 0xffd0f0, rot: -2.2, pose: 'Sit_Floor_Idle' });
-  npc('prof', '薇絲珀教授', 'hall', [[HX, -30.5]], { prof: 'vesper', tint: 0xc0b0ff, scale: 1.12, rot: 0 });
-  npc('rogue', '學生 芙蕾雅', 'hall', [[HX - 4, 26], [HX - 4, -22], [HX + 4, -22], [HX + 4, 26]], { tint: 0xffe0a0 });
-  npc('mage', '學生 歐文', 'hall', [[HX + 11, 5], [HX + 11, -20], [HX + 5, 8]], { tint: 0xa0e8ff, scale: .88 });
-  npc('rogue', '學生 希雅', 'hall', [[HX - 11.5, 3]], { rot: 1.57, pose: 'Sit_Floor_Idle' });
-  npc('rogue', '學生 凱', 'hall', [[HX + 3.5, 4]], { tint: 0xc8ffc8, rot: -2.4, pose: 'Cheer' });
+  npc('葛雷姆教授', 'out', [[-17, -19]], { prof: 'grym', scale: 1.06, rot: 1.2, robe: 0x2a1410, lining: 0xb5452f, hairColor: 0x8a8a8a });
+  npc('學生 艾琳', 'out', [[-22, 12], [-22, -32], [-5, -38], [-5, 12]], { female: true });
+  npc('學生 諾亞', 'out', [[24, 22], [24, -26], [12, -36]]);
+  npc('學生 里歐', 'out', [[0, 44], [3, 92], [-3, 60]], { scale: .95 });
+  npc('學生 米拉', 'out', [[30, 30]], { female: true, rot: -2.2, pose: 'Sit_Floor_Idle' });
+  npc('薇絲珀教授', 'hall', [[HX, -30.5]], { prof: 'vesper', female: true, scale: 1.04, rot: 0, robe: 0x1a1430, lining: 0x7a56b8, hair: 'long', hairColor: 0x14100c });
+  npc('學生 芙蕾雅', 'hall', [[HX - 4, 26], [HX - 4, -22], [HX + 4, -22], [HX + 4, 26]], { female: true });
+  npc('學生 歐文', 'hall', [[HX + 11, 5], [HX + 11, -20], [HX + 5, 8]], { scale: .96 });
+  npc('學生 希雅', 'hall', [[HX - 11.5, 3]], { female: true, rot: 1.57, pose: 'Sit_Floor_Idle' });
+  npc('學生 凱', 'hall', [[HX + 3.5, 4]], { rot: -2.4, pose: 'Cheer' });
 
+  box(1.7, .46, .55, 30, 30, wood); box(1.7, .46, .55, HX - 11.5, 3, wood);
   // ---------- 金幣 ----------
   const coins = []; {
     const r = rng(2026), geo = new T.CylinderGeometry(.42, .42, .08, 20); geo.rotateX(1.5708);
@@ -354,8 +458,8 @@ export async function openWorld(api) {
   let zone = '';
   function setZone(z) {
     zone = z; const hall = z === 'hall';
-    scene.fog = hall ? fogHall : fogOut; scene.background = hall ? hallBg : skyTex;
-    outLights.visible = !hall; hallLights.visible = hall; moon.intensity = hall ? .5 : 1.6;
+    scene.fog = hall ? fogHall : fogOut; scene.background = hall ? hallBg : null; sky.visible = !hall; hemi.intensity = hall ? 1.4 : 1.3;
+    outLights.visible = !hall; hallLights.visible = hall; moon.intensity = hall ? 0 : 2.6;
     for (const n of npcs) n.a.root.visible = n.zone === z;
     for (const t of targets) if (t.kind === 'enemy') t.root.visible = !hall && t.dead < 22;
     const zt = $('#w-zone'); zt.textContent = hall ? '星象大廳' : '黃昏庭院'; zt.classList.remove('show'); void zt.offsetWidth; zt.classList.add('show');
@@ -368,7 +472,7 @@ export async function openWorld(api) {
 
   // ---------- 輸入 ----------
   const keys = {}, joy = { id: null, x: 0, y: 0, ox: 0, oy: 0 }, look = { id: null, x: 0, y: 0 };
-  let yaw = 0, pitch = .34, drag = false, alive = true;
+  let yaw = 0, pitch = .2, drag = false, alive = true;
   const locked = () => document.pointerLockElement === cv;
   const off = [], on = (t, e, f, o) => { t.addEventListener(e, f, o); off.push(() => t.removeEventListener(e, f, o)); };
   on(window, 'keydown', e => { if (e.target.matches?.('input,textarea')) return; keys[e.code] = true; if (e.code === 'Space') e.preventDefault(); if (e.code === 'KeyQ') cast('lev'); if (e.code === 'KeyE') cast('blast'); if (e.code === 'KeyF') cast('bolt'); if (e.code === 'KeyR' && !e.repeat) broomToggle(); if (e.code === 'KeyT' || e.code === 'Enter') talk(); });
@@ -387,7 +491,7 @@ export async function openWorld(api) {
   el.querySelectorAll('.w-slot').forEach(b => on(b, 'pointerdown', e => { e.preventDefault(); b.dataset.s === 'jump' ? jump() : cast(b.dataset.s); }));
   on($('#w-broom'), 'pointerdown', e => { e.preventDefault(); broomToggle(); });
   on($('#w-talk'), 'pointerdown', e => { e.preventDefault(); talk(); }); on($('#w-dlg'), 'pointerdown', () => talk());
-  function resize() { const w = el.clientWidth, h = el.clientHeight; R.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
+  function resize() { const w = el.clientWidth, h = el.clientHeight; R.setSize(w, h, false); if (composer) { composer.setPixelRatio(R.getPixelRatio()); composer.setSize(w, h); } cam.aspect = w / h; cam.updateProjectionMatrix(); }
   on(window, 'resize', resize); resize();
 
   // ---------- 交談 ----------
@@ -405,15 +509,15 @@ export async function openWorld(api) {
   const tmp = new T.Vector3(), fwd = new T.Vector3();
   let target = null, time = 0;
   const center = t => tmp.copy(t.root.position).setY(t.root.position.y + t.ch);
-  function jump() { if (P.fly) { P.vy = 9; return; } if (P.ground && !P.dead) { P.vy = 7.5; P.ground = false; pa.play('Jump_Start', true, .1); pa.lock = .3; } }
+  function jump() { if (P.fly) { P.vy = 9; return; } if (P.ground && !P.dead) { P.vy = 6.2; P.ground = false; } }
   function cast(kind) {
     if (!alive || P.dead || cd[kind] > 0) return;
     if (kind === 'lev' && !target) return api.toast('漂浮咒需要一個目標，先面向假人或敵人');
     cd[kind] = CD[kind]; api.sound(kind === 'bolt' ? 'flip' : 'cast');
     if (target) player.rotation.y = Math.atan2(target.root.position.x - player.position.x, target.root.position.z - player.position.z);
     else player.rotation.y = yaw + Math.PI;
-    pa.play(kind === 'lev' ? 'Spellcast_Raise' : 'Spellcast_Shoot', true, .08); pa.lock = kind === 'lev' ? .9 : .45;
-    const from = new T.Vector3(Math.sin(player.rotation.y) * .7, 1.35, Math.cos(player.rotation.y) * .7).add(player.position);
+    pa.play(kind === 'lev' ? 'Spellcast_Raise' : 'Spellcast_Shoot', true, .08); pa.lock = kind === 'lev' ? .6 : .42;
+    const from = new T.Vector3(Math.sin(player.rotation.y) * .6, 1.3, Math.cos(player.rotation.y) * .6).add(player.position);
     if (kind === 'lev') { target.lev = 4.5; puff(center(target), 0xffd860, 40, 3, 1, 2); return; }
     const dir = target ? center(target).sub(from).normalize().clone() : new T.Vector3(-Math.sin(yaw), .02, -Math.cos(yaw)).normalize();
     const big = kind === 'blast', col = big ? 0xff7a30 : 0x8fe6ff;
@@ -428,7 +532,7 @@ export async function openWorld(api) {
     if (t.hp > 0) return;
     puff(p, 0xffd860, 90, 10, 1.1, 3); t.lev = 0; api.sound('rare');
     if (t.kind === 'dummy') { t.dead = 6; t.root.visible = false; if (!api.done.dummies.includes(t.id)) api.onDummy(t.id); else api.toast('假人已被擊倒（今日獎勵已領取）'); }
-    else { t.dead = 26; t.state = 'dead'; t.a.play('Death_A', true, .05); if (api.done.kills < KILL_CAP) api.onKill(t.big); else api.toast('擊倒骷髏（今日討伐獎勵已達上限）'); }
+    else { t.dead = 26; t.state = 'dead'; t.a.play('Death_A', true, .05); if (api.done.kills < KILL_CAP) api.onKill(t.big); else api.toast('驅散了暗影遊魂（今日獎勵已達上限）'); }
     objective();
   }
   function hurt(n) {
@@ -439,7 +543,7 @@ export async function openWorld(api) {
   }
 
   // ---------- HUD ----------
-  function objective() { const d = api.done; $('#w-obj').innerHTML = `◈ 今日探索　金幣 <b>${d.coins.length}/${COIN_N}</b>　假人 <b>${d.dummies.length}/3</b>　骷髏 <b>${Math.min(d.kills, KILL_CAP)}/${KILL_CAP}</b>　寶箱 <b>${d.chest ? 1 : 0}/1</b>　教授 <b>${d.prof.length}/2</b>　飛環 <b>${d.rings ? RINGS.length : ringN}/${RINGS.length}</b>`; }
+  function objective() { const d = api.done; $('#w-obj').innerHTML = `◈ 今日探索　金幣 <b>${d.coins.length}/${COIN_N}</b>　假人 <b>${d.dummies.length}/3</b>　遊魂 <b>${Math.min(d.kills, KILL_CAP)}/${KILL_CAP}</b>　寶箱 <b>${d.chest ? 1 : 0}/1</b>　教授 <b>${d.prof.length}/2</b>　飛環 <b>${d.rings ? RINGS.length : ringN}/${RINGS.length}</b>`; }
   objective();
   const map = $('.w-map').getContext('2d'), slotI = {}; el.querySelectorAll('.w-slot').forEach(b => slotI[b.dataset.s] = b.querySelector('i'));
   const dot = (x, z, r, c) => { map.fillStyle = c; map.beginPath(); map.arc(x, z, r, 0, 6.283); map.fill(); };
@@ -468,7 +572,7 @@ export async function openWorld(api) {
   function enemyAI(t, dt, pp) {
     const a = t.a, r = t.root, rp = r.position;
     if (t.state === 'dead') { t.dead -= dt; if (t.dead < 22) r.visible = false; if (t.dead <= 0) { t.dead = 0; t.hp = t.max; t.state = 'idle'; rp.copy(t.home); r.visible = zone === 'out'; a.play('Spawn_Ground', true, 0); a.lock = 1.2; } return; }
-    t.flash = Math.max(0, t.flash - dt); for (const m of t.mats) m.emissive && m.emissive.setScalar(t.flash > 0 ? .8 : 0);
+    t.flash = Math.max(0, t.flash - dt); for (const m of t.mats) m.emissive && m.emissive.setHex(t.flash > 0 ? 0xffffff : m.userData.em || 0);
     t.lev = Math.max(0, t.lev - dt); t.y += ((t.lev > 0 ? 2.4 + Math.sin(time * 3) * .2 : 0) - t.y) * Math.min(1, dt * (t.lev > 0 ? 4 : 7));
     const gy = H(rp.x, rp.z); rp.y = gy + t.y; a.lock = Math.max(0, a.lock - dt);
     if (t.lev > 0) { a.play('Jump_Idle'); r.rotation.y += dt * 1.5; if ((time * 15 | 0) % 4 === 0) puff(tmp.copy(rp), 0xffd860, 1, 1, .6, -1); return; }
@@ -476,23 +580,31 @@ export async function openWorld(api) {
     if (t.state === 'hurt') { t.t -= dt; if (t.t <= 0) t.state = 'chase'; return; }
     if (t.state === 'attack') {
       t.t -= dt; face(r, dx, dz, dt, 6);
-      if (!t.struck && t.t < .6) { t.struck = true; if (d < (t.big ? 3 : 2.3) && Math.abs(pp.y - rp.y) < 2) hurt(t.big ? 22 : 12); }
+      if (!t.struck && t.t < (t.big ? .85 : .6)) { t.struck = true; if (d < (t.big ? 2.6 : 1.9) && Math.abs(pp.y - rp.y) < 2) hurt(t.big ? 22 : 12); }
       if (t.t <= 0) t.state = 'chase'; return;
     }
     if (a.lock > 0) return;
     if (sees) {
       if (t.state !== 'chase') { t.state = 'chase'; a.play('Taunt', true); a.lock = .8; return; }
       face(r, dx, dz, dt);
-      if (d < (t.big ? 2.4 : 1.7)) { t.state = 'attack'; t.t = 1.1; t.struck = false; a.play(t.big ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop', true, .1); return; }
-      const sp = t.big ? 3 : 3.9; rp.x += dx / d * sp * dt; rp.z += dz / d * sp * dt; collide(rp, .4); a.play('Running_A');
+      if (d < (t.big ? 1.9 : 1.3)) { t.state = 'attack'; t.t = t.big ? 1.5 : 1; t.struck = false; a.play(t.big ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop', true, .1); return; }
+      const sp = t.big ? 3.2 : 4; rp.x += dx / d * sp * dt; rp.z += dz / d * sp * dt; collide(rp, .35); locomote(a, sp); a.sp = sp;
     } else {
       t.state = 'idle'; t.t -= dt; const gx = t.goal.x - rp.x, gz = t.goal.z - rp.z, gd = Math.hypot(gx, gz);
-      if (gd > .5) { face(r, gx, gz, dt, 5); rp.x += gx / gd * 1.3 * dt; rp.z += gz / gd * 1.3 * dt; collide(rp, .4); a.play('Walking_D_Skeletons'); }
+      if (gd > .5) { face(r, gx, gz, dt, 5); rp.x += gx / gd * 1.1 * dt; rp.z += gz / gd * 1.1 * dt; collide(rp, .35); a.play('Walking_D_Skeletons'); a.sp = 1; }
       else { a.play('Idle'); if (t.t <= 0) { t.t = 3 + Math.random() * 5; const an = Math.random() * 6.283, rd = Math.random() * 8; t.goal.set(t.home.x + Math.cos(an) * rd, 0, t.home.z + Math.sin(an) * rd); } }
     }
   }
 
   // ---------- 主迴圈 ----------
+  // 陰影與後製光暈
+  scene.traverse(o => { if (o.isMesh && o.material && o.material.isMeshStandardMaterial) { o.receiveShadow = HQ; if (!o.isSkinnedMesh && !o.userData.noCast && !o.material.transparent) o.castShadow = HQ; } });
+  if (HQ) try {
+    const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }] = await Promise.all(['EffectComposer', 'RenderPass', 'UnrealBloomPass', 'OutputPass'].map(f => import(`three/addons/postprocessing/${f}.js`)));
+    composer = new EffectComposer(R, new T.WebGLRenderTarget(4, 4, { type: T.HalfFloatType, samples: 4 }));
+    composer.addPass(new RenderPass(scene, cam)); composer.addPass(new UnrealBloomPass(new T.Vector2(512, 512), .3, .6, .9)); composer.addPass(new OutputPass()); resize();
+  } catch (e) { composer = null; }
+  if (!el.isConnected) return;
   let last = performance.now(), frame = 0;
   function loop(now) {
     if (!alive) return;
@@ -502,30 +614,30 @@ export async function openWorld(api) {
     let ix = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + joy.x, iz = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0) - joy.y;
     if (P.dead) ix = iz = 0; else if (keys.Space && !P.fly) jump();
     const il = Math.hypot(ix, iz); if (il > 1) { ix /= il; iz /= il; }
-    const run = keys.ShiftLeft || keys.ShiftRight || (il > .95 && touch), sp = (run ? 9 : 5.5) * Math.min(il, 1);
+    const run = keys.ShiftLeft || keys.ShiftRight, sp = (run ? 7.4 : 4.3) * Math.min(il, 1);
     const sn = Math.sin(yaw), cs = Math.cos(yaw), mx = (-sn * iz + cs * ix), mz = (-cs * iz - sn * ix);
     if (P.fly) { // 掃帚飛行：有慣性，往視線方向爬升或俯衝
       const top = run ? 27 : 15, m = Math.min(il, 1) / Math.max(il, 1e-3), k = Math.min(1, dt * 2.2);
       P.vx += (mx * m * top - P.vx) * k; P.vz += (mz * m * top - P.vz) * k;
-      const tilt = .3 - pitch, tvy = ((keys.Space ? 1 : 0) - (keys.KeyC || keys.KeyX ? 1 : 0)) * 10 + (Math.abs(tilt) > .08 ? Math.max(0, iz) * tilt * top * .8 : 0);
+      const tilt = .2 - pitch, tvy = ((keys.Space ? 1 : 0) - (keys.KeyC || keys.KeyX ? 1 : 0)) * 10 + (Math.abs(tilt) > .08 ? Math.max(0, iz) * tilt * top * .8 : 0);
       P.vy += (tvy - P.vy) * Math.min(1, dt * 3);
       pp.x += P.vx * dt; pp.z += P.vz * dt;
       const r0 = player.rotation.y; if (Math.hypot(P.vx, P.vz) > 1 && pa.lock <= 0) face(player, P.vx, P.vz, dt, 6);
       P.roll += (Math.max(-.6, Math.min(.6, -(player.rotation.y - r0) / Math.max(dt, 1e-3) * .2)) - P.roll) * Math.min(1, dt * 5);
       player.rotation.z = P.roll; player.rotation.x += (Math.max(-.45, Math.min(.45, -P.vy * .035)) - player.rotation.x) * Math.min(1, dt * 5);
     } else if (il > .05) { pp.x += mx / Math.max(il, 1e-3) * sp * dt; pp.z += mz / Math.max(il, 1e-3) * sp * dt; if (pa.lock <= 0) face(player, mx, mz, dt, 12); }
-    collide(pp, P.fly ? .6 : .45);
+    collide(pp, P.fly ? .5 : .32); pa.sp = P.fly ? Math.hypot(P.vx, P.vz) : il > .05 ? sp : 0;
     if (!hall) { const pr = Math.hypot(pp.x, pp.z); if (pr > WORLD_R) { pp.x *= WORLD_R / pr; pp.z *= WORLD_R / pr; } }
     const gy = floorAt(pp, P.fly);
     if (P.fly) {
-      pp.y += P.vy * dt; P.ground = false; const lo = gy + 1 + Math.sin(time * 2) * .06;
+      pp.y += P.vy * dt; P.ground = false; const lo = gy + .9 + Math.sin(time * 2) * .05;
       if (pp.y < lo) { pp.y = Math.max(gy + .3, pp.y + (lo - pp.y) * Math.min(1, dt * 8)); P.vy = Math.max(P.vy, 0); }
       if (pp.y > 95) { pp.y = 95; P.vy = Math.min(P.vy, 0); }
       if (frame % 2 === 0 && Math.hypot(P.vx, P.vz) > 5) puff(tmp.set(pp.x - Math.sin(player.rotation.y) * 1.9, pp.y + .5, pp.z - Math.cos(player.rotation.y) * 1.9), 0xffe0a0, 1, .5, .7, .6);
     } else { P.vy -= 20 * dt; pp.y += P.vy * dt; if (pp.y <= gy) { pp.y = gy; P.vy = 0; P.ground = true; } else if (pp.y > gy + .05) P.ground = false; }
     blob.position.set(pp.x, gy + .05, pp.z); blob.scale.setScalar(Math.max(.35, 1 - (pp.y - gy) * .03));
     pa.lock = Math.max(0, pa.lock - dt);
-    if (pa.lock <= 0 && !P.dead) pa.play(P.fly ? SIT : !P.ground ? 'Jump_Idle' : il > .05 ? (run ? 'Running_A' : 'Walking_A') : 'Idle');
+    if (pa.lock <= 0 && !P.dead) { if (P.fly) pa.play(SIT); else if (!P.ground) pa.play('Jump_Idle'); else locomote(pa, il > .05 ? sp : 0); }
     // 城堡大門
     P.door = Math.max(0, P.door - dt);
     if (!P.door && !P.dead) { if (!hall && pp.y < 3 && Math.abs(pp.x) < 2.4 && pp.z < -45.9 && pp.z > -48) travel('hall', HX, 33, Math.PI); else if (hall && Math.abs(pp.x - HX) < 2.8 && pp.z > 35.4) travel('out', 0, -43.5, 0); }
@@ -548,20 +660,20 @@ export async function openWorld(api) {
       if (t.lev > 0 && frame % 4 === 0) puff(tmp.copy(t.root.position).setY(t.y + .4), 0xffd860, 2, 1, .6, -1);
     }
     // 學生與教授
-    nearNpc = null; let nd = 3.4;
+    nearNpc = null; let nd = 2.8;
     for (const n of npcs) {
       if (n.zone !== zone) continue; const r = n.a.root, rp = r.position, dx = pp.x - rp.x, dz = pp.z - rp.z, d = Math.hypot(dx, dz);
       if (d < nd) { nd = d; nearNpc = n; } n.a.lock = Math.max(0, n.a.lock - dt);
       if (n.pose) { n.a.play(n.pose); continue; }
-      if (d < 3.4) { face(r, dx, dz, dt, 6); if (n.a.lock <= 0) n.a.play('Idle'); continue; }
+      if (d < 2.8) { face(r, dx, dz, dt, 6); n.a.sp = 0; if (n.a.lock <= 0) n.a.play('Idle'); continue; }
       if (n.pts.length < 2) { if (n.rot != null) face(r, Math.sin(n.rot), Math.cos(n.rot), dt, 3); if (n.a.lock <= 0) n.a.play('Idle'); continue; }
       const g = n.pts[n.i], gx = g[0] - rp.x, gz = g[1] - rp.z, gd = Math.hypot(gx, gz);
-      if (gd < .4) { n.wait -= dt; n.a.play('Idle'); if (n.wait <= 0) { n.i = (n.i + 1) % n.pts.length; n.wait = 1.5 + Math.random() * 4; } }
-      else { face(r, gx, gz, dt, 5); rp.x += gx / gd * 1.5 * dt; rp.z += gz / gd * 1.5 * dt; rp.y = H(rp.x, rp.z); n.a.play('Walking_A'); }
+      if (gd < .4) { n.wait -= dt; n.a.sp = 0; n.a.play('Idle'); if (n.wait <= 0) { n.i = (n.i + 1) % n.pts.length; n.wait = 1.5 + Math.random() * 4; } }
+      else { face(r, gx, gz, dt, 5); rp.x += gx / gd * 1.4 * dt; rp.z += gz / gd * 1.4 * dt; rp.y = H(rp.x, rp.z); n.a.sp = 1.4; n.a.play('Walking_A'); n.a.rate(.95); }
     }
     $('#w-talk').hidden = !nearNpc || !$('#w-dlg').hidden; if (dlgT > 0) { dlgT -= dt; if (dlgT <= 0 || !nearNpc) $('#w-dlg').hidden = true; }
     // 動畫更新（只更新附近的角色）
-    for (const a of actors) if (a.mixer && a.root.visible && Math.abs(a.root.position.x - pp.x) < 90 && Math.abs(a.root.position.z - pp.z) < 90) a.mixer.update(dt);
+    for (const a of actors) if (a.mixer && a.root.visible && Math.abs(a.root.position.x - pp.x) < 90 && Math.abs(a.root.position.z - pp.z) < 90) { a.mixer.update(dt); if (a.robe) robeFollow(a, dt); if (a.sway) a.sway.rotation.x += (Math.min(.3, a.sp * .035) + Math.sin(time * 2.2 + a.root.position.x) * .025 - a.sway.rotation.x) * Math.min(1, dt * 4); }
     // 投射物
     for (let i = shots.length - 1; i >= 0; i--) {
       const s = shots[i]; s.m.position.addScaledVector(s.dir, s.speed * dt); s.life -= dt; puff(s.m.position, s.col, s.big ? 3 : 1, .8, .35);
@@ -577,7 +689,7 @@ export async function openWorld(api) {
         if (Math.hypot(g.m.position.x - pp.x, g.m.position.y - pp.y - .8, g.m.position.z - pp.z) < 3) { g.got = true; ringN++; g.m.material.color.set(0xffd860); g.m.material.opacity = .3; puff(g.m.position, 0x8fe6ff, 70, 9, 1, 1); api.sound('coin');
           if (ringN === RINGS.length) { api.sound('level'); if (!api.done.rings && api.onRings) api.onRings(); else api.toast('🧹 完成飛環巡禮（今日獎勵已領取）'); } objective(); } }
       if (!api.done.chest && pp.distanceTo(chestPos) < 2.6) { api.onChest(); chest.userData.light && chest.remove(chest.userData.light); puff(chestPos.clone().setY(chestPos.y + 1), 0xb07cf0, 120, 9, 1.4, 4); api.sound('level'); objective(); }
-      for (const f of fires) { f.f.scale.set(1 + Math.sin(time * 13) * .12, 1 + Math.sin(time * 9) * .2, 1 + Math.cos(time * 11) * .12); f.l.intensity = 150 + Math.sin(time * 17) * 30; if (frame % 3 === 0 && Math.abs(f.f.position.x - pp.x) < 60) puff(f.f.position, 0xff8a30, 1, .6, 1, 2.5); }
+      for (const f of fires) { f.f.scale.set(1 + Math.sin(time * 13) * .12, 1 + Math.sin(time * 9) * .2, 1 + Math.cos(time * 11) * .12); f.l.intensity = 55 + Math.sin(time * 17) * 12; if (frame % 3 === 0 && Math.abs(f.f.position.x - pp.x) < 60) puff(f.f.position, 0xff8a30, 1, .6, 1, 2.5); }
       const a = flies.geometry.attributes.position, b = flies.userData.base; for (let i = 0; i < a.count; i++) { a.array[i * 3] = b[i * 3] + Math.sin(time * .6 + i) * 1.2; a.array[i * 3 + 1] = b[i * 3 + 1] + Math.sin(time * .9 + i * 1.7) * .5; } a.needsUpdate = true;
     } else {
       orrery.children.forEach((c, i) => { if (i) { c.rotation.z += dt * (.9 - i * .2); c.rotation.x += dt * .1; } });
@@ -589,18 +701,22 @@ export async function openWorld(api) {
     pGeo.attributes.position.needsUpdate = pGeo.attributes.color.needsUpdate = true;
     for (const k in cd) { cd[k] = Math.max(0, cd[k] - dt); if (slotI[k]) slotI[k].style.height = (CD[k] ? cd[k] / CD[k] * 100 : 0) + '%'; }
     // 相機（越肩視角）
-    P.cd = (P.cd || 7.6) + ((hall ? 6.4 : P.fly ? 9.6 : 7.6) - (P.cd || 7.6)) * Math.min(1, dt * 4);
+    P.cd = (P.cd || 4.4) + ((hall ? 4 : P.fly ? 6.8 : 4.4) - (P.cd || 4.4)) * Math.min(1, dt * 4);
     const wf = 60 + (P.fly ? Math.min(1, Math.hypot(P.vx, P.vz) / 27) * 16 : 0); if (Math.abs(cam.fov - wf) > .05) { cam.fov += (wf - cam.fov) * Math.min(1, dt * 4); cam.updateProjectionMatrix(); }
-    const cp = Math.cos(pitch), dist = P.cd, tx = pp.x + cs * .9, tz = pp.z - sn * .9, ty = pp.y + 2.35;
+    const cp = Math.cos(pitch), dist = P.cd, tx = pp.x + cs * .55, tz = pp.z - sn * .55, ty = pp.y + 1.55;
     let cx = tx + sn * cp * dist, cz = tz + cs * cp * dist, cy = ty + Math.sin(pitch) * dist;
-    if (hall) { cx = Math.max(HX - 14.5, Math.min(HX + 14.5, cx)); cz = Math.max(-35.5, Math.min(35.5, cz)); cy = Math.min(13, Math.max(.5, cy)); } else cy = Math.max(cy, H(cx, cz) + .5);
+    if (hall) { cx = Math.max(HX - 14.5, Math.min(HX + 14.5, cx)); cz = Math.max(-35.5, Math.min(35.5, cz)); cy = Math.min(13, Math.max(.5, cy)); } else cy = Math.max(cy, H(cx, cz) + .35);
     cam.position.set(cx, cy, cz); cam.lookAt(tx, ty, tz);
-    R.render(scene, cam); if (frame % 3 === 0) drawMap();
+    sky.position.copy(cam.position);
+    if (HQ && !hall) { moon.target.position.copy(pp); moon.position.copy(pp).add(SUN); }
+    // 探索能量：每秒扣一次，用完就離開世界
+    enT += dt; if (enT >= 1) { enT -= 1; const left = api.spend ? api.spend(1) : null; const ee = $('#w-en'); ee.hidden = left == null; if (left != null) { ee.textContent = `⚡ ${Math.floor(left)}:${String(Math.floor(left % 1 * 60)).padStart(2, '0')}`; ee.classList.toggle('low', left < 2); if (left <= 0) { api.toast('⚡ 探索能量用完了，回去修習再來吧', 4000); return $('#w-exit').click(); } } }
+    composer ? composer.render() : R.render(scene, cam); if (frame % 3 === 0) drawMap();
     requestAnimationFrame(loop);
   }
-  el.debug = { travel, player, hurt, P, keys, broomToggle, step: loop }; // 測試用
+  el.debug = { travel, player, hurt, P, keys, broomToggle, step: loop, sky, scene, cam, npcs, targets, view: (y, p) => { yaw = y; pitch = p; } }; // 測試用
   setZone('out'); fadeEl.classList.remove('on');
-  if (!lib.mage) api.toast('角色模型載入失敗，暫時使用簡易造型（請確認網路連線）', 4000);
+  if (!lib.male) api.toast('角色模型載入失敗，暫時使用簡易造型（請確認網路連線）', 4000);
   requestAnimationFrame(loop);
 
   return new Promise(res => {

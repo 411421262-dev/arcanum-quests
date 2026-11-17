@@ -18,11 +18,13 @@ const fresh = () => ({
   talentPts: 0, talents: {}, tasks: [], ideas: [], rewards: structuredClone(DEFAULT_REWARDS), bag: [],
   cards: {}, ach: {}, timer: null, sound: true, world: { day: '', coins: [], dummies: [], chest: false, kills: 0, prof: [], rings: false },
   stats: { done: 0, coinsEarned: 0, packs: 0, streak: 0, best: 0, lastDone: '', redeemed: 0, ideas: 0 },
+  // 學習：專注紀錄、記憶卡、回想筆記、探索能量（進入 3D 世界的分鐘數）
+  study: { log: {}, rev: {}, goal: 60, energy: 15, gate: true, cards: [], notes: [], focusN: 0 }, focus: null,
 });
 let S = fresh();
 try {
   const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
-  if (raw && raw.v === 1) S = { ...fresh(), ...raw, stats: { ...fresh().stats, ...raw.stats }, profile: { ...fresh().profile, ...raw.profile } };
+  if (raw && raw.v === 1) S = { ...fresh(), ...raw, stats: { ...fresh().stats, ...raw.stats }, profile: { ...fresh().profile, ...raw.profile }, study: { ...fresh().study, ...raw.study } };
 } catch (e) { /* 存檔毀損時使用新檔 */ }
 let saveOk = true;
 function save() {
@@ -40,7 +42,8 @@ const isDone = t => t.daily ? t.lastDone === today() : !!t.doneAt;
 const price = r => Math.max(1, Math.ceil(r.cost * (1 - .05 * tal('barter'))));
 
 // ---------- UI 狀態 ----------
-let tab = 'quests', filter = 'all', showDone = false;
+let tab = 'study', filter = 'all', showDone = false;
+const draftF = { mins: 25, task: '' };
 const draft = { cat: 'study', diff: 'normal', daily: false };
 let obHouse = 'star';
 const app = $('#app');
@@ -122,6 +125,92 @@ function checkAch() {
   save();
 }
 
+// ---------- 學習：連續天數、探索能量 ----------
+const ST = () => S.study;
+function bumpStreak() {
+  const td = today(); if (S.stats.lastDone === td) return;
+  S.stats.streak = S.stats.lastDone === dayOff(-1) ? S.stats.streak + 1 : 1;
+  S.stats.lastDone = td; S.stats.best = Math.max(S.stats.best, S.stats.streak);
+}
+function addEnergy(m) { ST().energy = Math.min(180, Math.round((ST().energy + m) * 10) / 10); }
+const minsToday = () => ST().log[today()] || 0;
+const dueCards = deck => ST().cards.filter(c => c.due <= today() && (!deck || c.deck === deck));
+const mmss = ms => { const x = Math.max(0, Math.ceil(ms / 1000)); return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
+
+// ---------- 專注計時 ----------
+let wake = null;
+function startFocus() {
+  if (S.focus) return showFocus();
+  S.focus = { start: Date.now(), end: Date.now() + draftF.mins * 60000, mins: draftF.mins, taskId: draftF.task }; save();
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  FX.sound('cast'); showFocus();
+}
+function showFocus() {
+  if (!S.focus || $('#focus')) return;
+  const t = S.tasks.find(x => x.id === S.focus.taskId), el = document.createElement('div'); el.id = 'focus';
+  el.innerHTML = `<div class="fc-in"><div class="fc-lab">專注修習中</div>
+    <div class="fc-ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/><circle id="fc-arc" cx="60" cy="60" r="54" pathLength="100" stroke-dasharray="100" stroke-dashoffset="0"/></svg><b id="fc-t">--:--</b></div>
+    <h3>${t ? esc(t.title) : '自由修習'}</h3>
+    <p class="sub">把手機放遠一點，只做這一件事。<br>離開這個畫面也不會中斷計時。</p>
+    <div class="fc-btns"><button class="btn ghost sm" data-act="focus-hide">縮小</button><button class="btn sm" data-act="focus-stop">提早結束</button></div></div>`;
+  document.body.appendChild(el);
+  try { navigator.wakeLock?.request('screen').then(w => wake = w).catch(() => {}); } catch (e) { /* 不支援 */ }
+  tick();
+}
+function endFocus(full) {
+  const f = S.focus; if (!f) return;
+  const mins = full ? f.mins : Math.floor((Date.now() - f.start) / 60000), t = S.tasks.find(x => x.id === f.taskId);
+  S.focus = null; $('#focus')?.remove(); document.title = '奧術學院 · 任務之書'; try { wake?.release(); } catch (e) { /* 忽略 */ } wake = null;
+  if (mins < 5) { save(); render(); return toast('未滿 5 分鐘，這次不計入紀錄'); }
+  ST().log[today()] = minsToday() + mins; ST().focusN++; bumpStreak();
+  const coins = Math.round(mins * (full ? 1.2 : .7)), gems = full && mins >= 45 ? 1 : 0, en = Math.round(mins * .4);
+  addEnergy(en); const ups = grant({ coins, gems, xp: mins }); save(); render();
+  FX.sound(full ? 'level' : 'coin'); if (full) FX.fireworks(3);
+  try { if (full && 'Notification' in window && Notification.permission === 'granted') new Notification('專注完成', { body: `${mins} 分鐘的修習結束了，休息一下吧` }); } catch (e) { /* 忽略 */ }
+  enqueue(() => overlay(`<div class="ov-card"><div class="orn"><span>${full ? '專注完成' : '提早結束'}</span></div><div class="bigicon">🕯</div>
+    <h3>${mins} 分鐘</h3>
+    <div class="loot"><span>${ic('coins')} +${coins}</span><span>XP +${mins}</span>${gems ? `<span>${ic('gems')} +1</span>` : ''}<span>⚡ 探索能量 +${en} 分</span></div>
+    <label class="recall">主動回想：不看資料，用自己的話寫下剛剛學到的重點（可略過）<textarea id="recall" rows="3" maxlength="600" placeholder="例如：今天弄懂了⋯"></textarea></label>
+    ${t && !isDone(t) ? `<label class="chk"><input type="checkbox" id="fc-done"> 同時把任務「${esc(t.title)}」標記為完成</label>` : ''}
+    <button class="btn gold" data-act="focus-save" data-task="${t ? t.id : ''}">收下</button></div>`).then(() => { render(); ups.forEach(l => enqueue(() => levelUp(l).then(render))); checkAch(); }));
+}
+
+// ---------- 記憶卡（間隔重複）----------
+const IVL = { again: () => 0, hard: c => Math.max(1, Math.round(c.ivl * 1.2)), good: c => c.reps === 0 ? 1 : c.reps === 1 ? 3 : Math.round(c.ivl * c.ease), easy: c => c.reps === 0 ? 4 : Math.round(Math.max(c.ivl, 1) * c.ease * 1.3) };
+const ivlText = d => d <= 0 ? '馬上再來' : d < 30 ? `${d} 天後` : d < 365 ? `${Math.round(d / 30)} 個月後` : `${(d / 365).toFixed(1)} 年後`;
+let rv = null;
+function addCard(deck, q, a) { q = q.trim(); a = a.trim(); if (!q || !a) return false; ST().cards.push({ id: uid(), deck: deck.trim() || '未分類', q: q.slice(0, 500), a: a.slice(0, 1000), due: today(), ivl: 0, ease: 2.5, reps: 0 }); return true; }
+function startReview(deck) {
+  const q = dueCards(deck).map(c => c.id); if (!q.length) return toast('目前沒有到期的記憶卡');
+  for (let i = q.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [q[i], q[j]] = [q[j], q[i]]; }
+  rv = { queue: q, shown: false, n: 0, seen: new Set() };
+  const el = document.createElement('div'); el.id = 'review'; document.body.appendChild(el); drawReview();
+}
+function drawReview() {
+  const el = $('#review'); if (!el || !rv) return;
+  const c = ST().cards.find(x => x.id === rv.queue[0]); if (!c) { rv.queue.shift(); return rv.queue.length ? drawReview() : endReview(); }
+  el.innerHTML = `<div class="rv-in"><div class="rv-top"><span>${esc(c.deck)}</span><span>剩下 ${rv.queue.length} 張</span><button class="btn ghost sm" data-act="rv-quit">結束</button></div>
+    <div class="rv-card"><div class="rv-q">${esc(c.q)}</div>${rv.shown ? `<hr><div class="rv-a">${esc(c.a)}</div>` : ''}</div>
+    ${rv.shown ? `<div class="rv-grade">${[['again', '忘了', '#d86a5a'], ['hard', '有點難', '#d8a04a'], ['good', '記得', '#6fbf73'], ['easy', '很簡單', '#5fa8d8']].map(([k, n, col], i) => `<button data-act="rv-grade" data-g="${k}" style="--cc:${col}"><b>${n}</b><small>${ivlText(IVL[k](c))}</small><kbd>${i + 1}</kbd></button>`).join('')}</div>`
+      : `<p class="sub">先在心裡（或說出口）回答，再翻開答案</p><button class="btn gold big" data-act="rv-show">翻開答案 <kbd>空白鍵</kbd></button>`}</div>`;
+}
+function gradeCard(g) {
+  if (!rv || !rv.shown) return; const c = ST().cards.find(x => x.id === rv.queue[0]); if (!c) return;
+  const ivl = IVL[g](c); rv.queue.shift(); rv.shown = false;
+  if (!rv.seen.has(c.id)) { rv.seen.add(c.id); rv.n++; }
+  if (g === 'again') { c.reps = 0; c.ivl = 0; c.ease = Math.max(1.3, c.ease - .2); c.lapses = (c.lapses || 0) + 1; rv.queue.push(c.id); }
+  else { c.ease = Math.max(1.3, c.ease + (g === 'hard' ? -.15 : g === 'easy' ? .15 : 0)); c.ivl = ivl; c.reps++; c.due = dayOff(ivl); }
+  save(); FX.sound(g === 'again' ? 'deny' : 'flip'); rv.queue.length ? drawReview() : endReview();
+}
+function endReview() {
+  const n = rv ? rv.n : 0; rv = null; $('#review')?.remove(); if (!n) return render();
+  ST().rev[today()] = (ST().rev[today()] || 0) + n; bumpStreak();
+  const coins = n * 2, en = Math.round(n * .5); addEnergy(en); const ups = grant({ coins, xp: n * 2 }); save(); render(); FX.sound('rare');
+  enqueue(() => overlay(`<div class="ov-card"><div class="orn"><span>複習完成</span></div><div class="bigicon">🧠</div><h3>${n} 張記憶卡</h3>
+    <div class="loot"><span>${ic('coins')} +${coins}</span><span>XP +${n * 2}</span><span>⚡ 探索能量 +${en} 分</span></div>
+    <p class="sub">答不出來的卡片會更快再出現，記得的會隔更久。</p><button class="btn gold" data-act="ov-close">收下</button></div>`).then(() => { render(); ups.forEach(l => enqueue(() => levelUp(l).then(render))); checkAch(); }));
+}
+
 // ---------- 任務 ----------
 function addTask(title, o = {}) {
   S.tasks.unshift({ id: uid(), title: title.trim(), note: o.note || '', cat: o.cat || draft.cat, diff: o.diff || draft.diff,
@@ -130,11 +219,8 @@ function addTask(title, o = {}) {
 }
 function completeTask(id, btn) {
   const t = S.tasks.find(x => x.id === id); if (!t || isDone(t)) return;
-  const d = DIFFS[t.diff], td = today(), r = btn.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-  if (S.stats.lastDone !== td) {
-    S.stats.streak = S.stats.lastDone === dayOff(-1) ? S.stats.streak + 1 : 1;
-    S.stats.lastDone = td; S.stats.best = Math.max(S.stats.best, S.stats.streak);
-  }
+  const d = DIFFS[t.diff], td = today(), r = btn ? btn.getBoundingClientRect() : { left: innerWidth / 2, top: innerHeight / 2, width: 0, height: 0 }, cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  bumpStreak(); addEnergy({ easy: 2, normal: 5, hard: 10, epic: 20 }[t.diff] || 3);
   const streakMul = 1 + Math.min(S.stats.streak - 1, 10) * .05;
   const crit = Math.random() < .1 + .05 * tal('luck');
   const coins = Math.round(d.coins * (1 + .1 * tal('gold')) * streakMul * (crit ? 2 : 1));
@@ -145,7 +231,7 @@ function completeTask(id, btn) {
   const ups = grant({ coins, gems, tickets: d.tickets, xp });
   save();
   const col = CATS[t.cat].color;
-  btn.closest('.quest').classList.add('casting');
+  btn?.closest('.quest')?.classList.add('casting');
   FX.spell(cx, cy, col); FX.sound('cast');
   floatText(cx, cy - 20, `+${coins} ${ic('coins')}　+${xp} XP`, crit ? 'crit' : '');
   if (crit) { floatText(cx, cy - 58, '完美施法 ×2', 'crit big'); FX.burst(cx, cy, '#fff', 60, 480); }
@@ -179,6 +265,10 @@ function useItem(id) {
   it.used = Date.now(); save(); FX.sound('rare'); FX.fireworks(2); render();
 }
 function tick() {
+  if (S.focus) {
+    const left = S.focus.end - Date.now(); if (left <= 0) endFocus(true);
+    else { const tx = mmss(left); document.title = `${tx} 專注中`; const a = $('#fc-t'); if (a) { a.textContent = tx; $('#fc-arc').style.strokeDashoffset = 100 - left / (S.focus.mins * 600); } const b = $('#fc-mini'); if (b) b.textContent = tx; }
+  }
   const el = $('#timer'); if (!S.timer) return;
   const left = S.timer.end - Date.now();
   if (left <= 0) {
@@ -248,7 +338,7 @@ function openPack(pid, btn) {
 }
 
 // ---------- 畫面 ----------
-const TABS = [['quests', '任務', '📜'], ['world', '世界', '🏰'], ['ideas', '思緒瓶', '💭'], ['shop', '獎勵', '🏪'], ['cards', '卡牌', '🎴'], ['ach', '挑戰', '🏆'], ['profile', '檔案', '🧙']];
+const TABS = [['study', '修習', '🕯'], ['quests', '任務', '📜'], ['world', '世界', '🏰'], ['shop', '獎勵', '🏪'], ['cards', '卡牌', '🎴'], ['ach', '挑戰', '🏆'], ['profile', '檔案', '🧙']];
 const orn = t => `<h2 class="orn"><span>${t}</span></h2>`;
 
 function hud() {
@@ -266,6 +356,7 @@ function hud() {
       <span class="cur" id="cur-gems" title="星晶">${ic('gems')}${S.gems}</span>
       <span class="cur" id="cur-tickets" title="通行票">${ic('tickets')}${S.tickets}</span>
     </div></header>
+    ${S.focus ? `<div class="timerbar fc">🕯 專注修習中　<b id="fc-mini">--:--</b><button data-act="focus-show">回到專注畫面</button></div>` : ''}
     ${S.timer ? `<div class="timerbar">⏳ ${esc(S.timer.name)}　<b id="timer">--:--</b><button data-act="stop-timer">提前結束</button></div>` : ''}`;
 }
 
@@ -302,11 +393,46 @@ function vQuests() {
   ${daily.length ? `<h3 class="sec">每日修行 <small>${daily.filter(isDone).length} / ${daily.length}</small></h3><ul class="quests">${daily.map(questRow).join('')}</ul>` : ''}
   <h3 class="sec">進行中的任務 <small>${open.length}</small></h3>
   ${open.length ? `<ul class="quests">${open.map(questRow).join('')}</ul>` : `<p class="empty">目前沒有任務。在上方寫下第一個誓約，完成後即可獲得金幣與經驗。</p>`}
-  ${done.length ? `<h3 class="sec click" data-act="toggle-done">已完成 <small>${done.length}　${showDone ? '▲ 收合' : '▼ 展開'}</small></h3>${showDone ? `<ul class="quests">${done.slice(0, 50).map(questRow).join('')}</ul>` : ''}` : ''}`;
+  ${done.length ? `<h3 class="sec click" data-act="toggle-done">已完成 <small>${done.length}　${showDone ? '▲ 收合' : '▼ 展開'}</small></h3>${showDone ? `<ul class="quests">${done.slice(0, 50).map(questRow).join('')}</ul>` : ''}` : ''}
+  ${vIdeas()}`;
+}
+
+function vStudy() {
+  const st = ST(), mins = minsToday(), due = dueCards().length, open = S.tasks.filter(t => !isDone(t));
+  const days = [...Array(7)].map((_, i) => dayOff(i - 6)), mx = Math.max(st.goal, ...days.map(d => st.log[d] || 0));
+  const decks = [...new Set(st.cards.map(c => c.deck))];
+  const next = !mins && due ? 'cards' : mins < st.goal ? 'focus' : due ? 'cards' : 'rest';
+  return `${orn('今日修習')}
+  <p class="lead c">${next === 'cards' ? `先花幾分鐘複習 <b class="gold-t">${due}</b> 張到期的記憶卡，再開始今天的專注。` : next === 'focus' ? `今天還差 <b class="gold-t">${st.goal - mins}</b> 分鐘達成目標。選一件事，開始專注。` : next === 'rest' ? '今天的目標已經達成，可以放心去探索世界或兌換獎勵了。' : ''}</p>
+  <div class="st-top">
+    <div><b>${mins}<small> / ${st.goal}</small></b><small>今日專注分鐘</small><div class="bar"><i style="width:${Math.min(100, mins / st.goal * 100)}%"></i></div></div>
+    <div><b>${due}</b><small>張記憶卡到期</small></div>
+    <div><b>⚡ ${Math.floor(st.energy)}</b><small>探索能量（分鐘）</small></div>
+    <div><b>🔥 ${S.stats.streak}</b><small>連續天數</small></div>
+  </div>
+  <div class="week">${days.map(d => { const v = st.log[d] || 0; return `<div title="${d}：${v} 分鐘"><i style="height:${Math.round(v / mx * 100)}%" class="${v >= st.goal ? 'ok' : ''}"></i><small>${'日一二三四五六'[new Date(d + 'T12:00').getDay()]}</small></div>`; }).join('')}</div>
+  <h3 class="sec">專注修習</h3>
+  <div class="panel fstart">
+    <select id="fc-task"><option value="">不指定任務（自由修習）</option>${open.map(t => `<option value="${t.id}" ${draftF.task === t.id ? 'selected' : ''}>${CATS[t.cat].icon} ${esc(t.title)}</option>`).join('')}</select>
+    <div class="seg">${[15, 25, 45, 60].map(m => `<button class="chip ${draftF.mins === m ? 'on' : ''}" data-act="f-mins" data-v="${m}">${m} 分鐘</button>`).join('')}</div>
+    <button class="btn gold big" data-act="focus-start">🕯 ${S.focus ? '回到專注畫面' : `開始專注 ${draftF.mins} 分鐘`}</button>
+    <small class="dim">完成可得 ${ic('coins')}${Math.round(draftF.mins * 1.2)}、XP ${draftF.mins}、⚡${Math.round(draftF.mins * .4)} 分鐘探索能量${draftF.mins >= 45 ? `、${ic('gems')}1` : ''}。</small>
+  </div>
+  <form class="add quick" id="f-quick"><div class="add-row"><input name="title" placeholder="突然想到要做的事？先記下來，回頭再處理" autocomplete="off" maxlength="120" required><button class="btn">＋ 記下</button></div></form>
+  <h3 class="sec">記憶卡複習 <small>共 ${st.cards.length} 張${st.rev[today()] ? `・今天已複習 ${st.rev[today()]} 張` : ''}</small></h3>
+  ${st.cards.length ? `<div class="decks"><button class="deck all ${due ? '' : 'none'}" data-act="rv-start" data-deck=""><b>全部到期</b><span>${due} 張</span></button>${decks.map(d => { const n = dueCards(d).length; return `<button class="deck ${n ? '' : 'none'}" data-act="rv-start" data-deck="${esc(d)}"><b>${esc(d)}</b><span>${n} 張到期 / 共 ${st.cards.filter(c => c.deck === d).length}</span></button>`; }).join('')}</div>`
+    : `<p class="empty">還沒有記憶卡。把課本重點、單字、公式寫成「問題 → 答案」，系統會在你快忘記的時候安排複習。</p>`}
+  <details class="panel" ${st.cards.length ? '' : 'open'}><summary>＋ 新增記憶卡</summary>
+    <form id="f-card" class="cform"><input name="deck" list="dl-decks" placeholder="牌組（例如：英文單字、微積分）" maxlength="30" value="${esc(draftF.deck || decks[0] || '')}"><datalist id="dl-decks">${decks.map(d => `<option value="${esc(d)}">`).join('')}</datalist>
+      <textarea name="q" rows="2" placeholder="問題（正面）" maxlength="500"></textarea><textarea name="a" rows="2" placeholder="答案（背面）" maxlength="1000"></textarea>
+      <textarea name="bulk" rows="3" placeholder="或一次貼上多張：每行一張，用「|」或 Tab 分隔問題與答案&#10;photosynthesis | 光合作用&#10;mitochondria | 粒線體"></textarea>
+      <button class="btn gold">加入</button></form></details>
+  ${st.cards.length ? `<details class="panel"><summary>管理記憶卡</summary><ul class="clist">${st.cards.slice(-200).reverse().map(c => `<li><div><b>${esc(c.q)}</b><small>${esc(c.a)}</small></div><span>${esc(c.deck)}<br>${c.due <= today() ? '到期' : c.due.slice(5).replace('-', '/')}</span><button class="x" data-act="del-card" data-id="${c.id}">✕</button></li>`).join('')}</ul></details>` : ''}
+  ${st.notes.length ? `<h3 class="sec">回想筆記 <small>專注後寫下的重點</small></h3><ul class="ideas">${st.notes.slice(0, 12).map(x => `<li class="idea"><div class="idea-t">${esc(x.text)}</div><div class="idea-f"><small>${new Date(x.at).toLocaleDateString('zh-TW')}${x.task ? '・' + esc(x.task) : ''}</small><span><button class="btn sm ghost" data-act="del-note" data-id="${x.id}">刪除</button></span></div></li>`).join('')}</ul>` : ''}`;
 }
 
 function vIdeas() {
-  return `${orn('思緒瓶')}
+  return `<h3 class="sec">思緒瓶 <small>${S.ideas.length}</small></h3>
   <p class="lead">任何一閃而過的念頭、想做的事、還沒想清楚的計畫，先倒進瓶子裡，之後再決定要不要變成任務。</p>
   <form class="add" id="f-idea"><div class="add-row"><textarea name="text" rows="2" placeholder="把想法丟進來⋯（Ctrl + Enter 送出）" maxlength="1000" required></textarea><button class="btn gold">💧 存入</button></div></form>
   ${S.ideas.length ? `<ul class="ideas">${S.ideas.map(i => `<li class="idea"><div class="idea-t" contenteditable="plaintext-only" spellcheck="false" data-edit-idea="${i.id}">${esc(i.text)}</div>
@@ -376,6 +502,8 @@ function vProfile() {
   <div class="panel settings">
     <label>巫師名<input id="set-name" value="${esc(S.profile.name)}" maxlength="20"></label>
     <div class="seg">${Object.entries(HOUSES).map(([k, x]) => `<button class="chip ${S.profile.house === k ? 'on' : ''}" style="--cc:${x.color}" data-act="set-house" data-v="${k}">${x.name}</button>`).join('')}</div>
+    <div class="seg"><button class="chip ${ST().gate ? 'on' : ''}" data-act="gate">${ST().gate ? '🎓 學習優先模式：開啟（世界需要探索能量）' : '🎓 學習優先模式：關閉'}</button>
+      <label class="chip">每日專注目標 <input id="set-goal" type="number" min="10" max="600" step="5" value="${ST().goal}" style="width:4.5em"> 分鐘</label></div>
     <div class="seg"><button class="chip ${S.sound ? 'on' : ''}" data-act="sound">${S.sound ? '🔊 音效開啟' : '🔇 音效關閉'}</button>
       <button class="chip" data-act="export">⬇ 匯出存檔</button><label class="chip">⬆ 匯入存檔<input type="file" id="imp" accept="application/json,.json" hidden></label>
       <button class="chip danger" data-act="reset">重置所有進度</button></div>
@@ -389,10 +517,10 @@ function vWorld() {
   return `${orn('學院世界')}
   <div class="world-hero"><div class="wh-in">
     <h3>奧術學院・黃昏庭院</h3>
-    <p>走進可以自由探索的 3D 世界：在庭院練習咒語、和學生與教授交談、走進城堡的星象大廳，或是到森林深處討伐骷髏、尋找寶箱。</p>
-    <div class="loot"><span>${ic('coins')} 金幣 ${w.coins.length} / 20</span><span>🎯 訓練假人 ${w.dummies.length} / 3</span><span>💀 骷髏 ${Math.min(w.kills, 10)} / 10</span><span>🧰 寶箱 ${w.chest ? 1 : 0} / 1</span><span>🎓 教授 ${w.prof.length} / 2</span><span>🧹 飛環巡禮 ${w.rings ? 1 : 0} / 1</span></div>
-    <button class="btn gold big" data-act="enter-world">⚔ 進入世界</button>
-    <small>世界獎勵每天重置一次。之後會陸續增加新的地圖與玩法。</small>
+    <p>走進可以自由探索的 3D 世界：在庭院練習咒語、和學生與教授交談、走進城堡的星象大廳，或是到森林深處驅逐暗影遊魂、尋找寶箱。</p>
+    <div class="loot"><span>${ic('coins')} 金幣 ${w.coins.length} / 20</span><span>🎯 訓練假人 ${w.dummies.length} / 3</span><span>👻 遊魂 ${Math.min(w.kills, 10)} / 10</span><span>🧰 寶箱 ${w.chest ? 1 : 0} / 1</span><span>🎓 教授 ${w.prof.length} / 2</span><span>🧹 飛環巡禮 ${w.rings ? 1 : 0} / 1</span></div>
+    <button class="btn gold big ${ST().gate && ST().energy < 1 ? 'dis' : ''}" data-act="enter-world">⚔ 進入世界${ST().gate ? `　⚡ ${Math.floor(ST().energy)} 分鐘` : ''}</button>
+    <small>${ST().gate ? '探索世界會消耗探索能量。專注 25 分鐘可得 10 分鐘，複習記憶卡與完成任務也會累積。' : '學習優先模式已關閉，可以自由進出世界。'}世界獎勵每天重置一次。</small>
   </div></div>
   <h3 class="sec">操作方式</h3>
   <div class="grid keys"><div><b>WASD</b><small>移動</small></div><div><b>滑鼠</b><small>轉動視角</small></div><div><b>Shift</b><small>奔跑</small></div><div><b>空白鍵</b><small>跳躍</small></div>
@@ -400,15 +528,20 @@ function vWorld() {
 }
 let inWorld = false;
 async function enterWorld() {
-  if (inWorld) return; inWorld = true;
+  if (inWorld) return;
+  if (S.focus) return toast('專注修習進行中，結束後再來探索吧');
+  if (ST().gate && ST().energy < 1) { FX.sound('deny'); tab = 'study'; render(); return toast('⚡ 探索能量用完了。先專注修習或複習記憶卡來補充', 4000); }
+  inWorld = true; let spent = 0;
   const w = worldDay(), ups = [], give = (r, msg) => { ups.push(...grant(r)); save(); toast(msg, 1800); };
   try {
     const { openWorld } = await import('./world.js');
     await openWorld({
-      color: HOUSES[S.profile.house].color, done: w, toast, sound: FX.sound,
+      color: HOUSES[S.profile.house].color, dark: HOUSES[S.profile.house].dark, done: w, toast, sound: FX.sound,
+      // 每秒呼叫一次：扣除探索能量，回傳剩餘分鐘（關閉學習優先模式時為 null）
+      spend: sec => { if (!ST().gate) return null; ST().energy = Math.max(0, ST().energy - sec / 60); if (++spent % 20 === 0) save(); return ST().energy; },
       onCoin: id => { w.coins.push(id); give({ coins: 2, xp: 1 }, `${ic('coins')} +2 金幣`); },
       onDummy: id => { w.dummies.push(id); give({ coins: 10, xp: 8 }, `🎯 擊倒假人　${ic('coins')} +10　XP +8`); },
-      onKill: big => { w.kills++; give(big ? { coins: 15, xp: 12 } : { coins: 6, xp: 5 }, `💀 擊倒${big ? '骷髏隊長' : '骷髏'}　${ic('coins')} +${big ? 15 : 6}`); },
+      onKill: big => { w.kills++; give(big ? { coins: 15, xp: 12 } : { coins: 6, xp: 5 }, `👻 驅散${big ? '暗影統領' : '暗影遊魂'}　${ic('coins')} +${big ? 15 : 6}`); },
       profTalk: id => {
         const td = today(), n = S.tasks.filter(t => t.daily ? t.lastDone === td : t.doneAt && ymd(new Date(t.doneAt)) === td).length;
         if (w.prof.includes(id)) return '今天的報到已經完成了。明天再帶著新的成果來找我吧。';
@@ -434,7 +567,7 @@ function vOnboard() {
   </div><div class="ob-r"><div class="stage" id="ob3d"></div></div></div>`;
 }
 
-const views = { quests: vQuests, world: vWorld, ideas: vIdeas, shop: vShop, cards: vCards, ach: vAch, profile: vProfile };
+const views = { study: vStudy, quests: vQuests, world: vWorld, shop: vShop, cards: vCards, ach: vAch, profile: vProfile };
 function render() {
   if (!S.profile.house) {
     app.innerHTML = vOnboard();
@@ -443,7 +576,7 @@ function render() {
   }
   const y = scrollY;
   app.innerHTML = hud() + `<main class="view v-${tab}">${views[tab]()}</main>`;
-  scrollTo(0, y); tick();
+  scrollTo(0, y); tick(); if (S.focus && !render.once) { render.once = 1; showFocus(); }
   if (tab === 'ach') mount($('#trophy3d'), 'trophy', { tier: Math.min(2, Math.floor(Object.keys(S.ach).length / 6)), dist: 9 });
 }
 
@@ -451,6 +584,18 @@ function render() {
 const acts = {
   tab: el => { tab = el.dataset.tab; render(); scrollTo(0, 0); },
   'enter-world': () => enterWorld(),
+  'f-mins': el => { draftF.mins = +el.dataset.v; render(); },
+  'focus-start': () => startFocus(), 'focus-show': () => showFocus(), 'focus-hide': () => $('#focus')?.remove(),
+  'focus-stop': () => { if (confirm('要提早結束這次專注嗎？已經過的時間仍會計入（滿 5 分鐘）。')) endFocus(false); },
+  'focus-save': el => {
+    const tx = $('#recall')?.value.trim(), t = S.tasks.find(x => x.id === el.dataset.task), fin = $('#fc-done')?.checked;
+    if (tx) ST().notes.unshift({ id: uid(), text: tx, at: Date.now(), task: t ? t.title : '' }); save(); $('#overlay')._close?.();
+    if (fin && t) completeTask(t.id, null);
+  },
+  'rv-start': el => startReview(el.dataset.deck), 'rv-show': () => { if (rv) { rv.shown = true; drawReview(); } }, 'rv-grade': el => gradeCard(el.dataset.g), 'rv-quit': () => endReview(),
+  'del-card': el => { ST().cards = ST().cards.filter(c => c.id !== el.dataset.id); save(); el.closest('li').remove(); },
+  'del-note': el => { ST().notes = ST().notes.filter(c => c.id !== el.dataset.id); save(); render(); },
+  gate: () => { ST().gate = !ST().gate; save(); render(); },
   'ov-close': () => $('#overlay')._close?.(),
   'ob-house': el => { obHouse = el.dataset.v; const n = $('#f-onboard input')?.value; render(); if (n) $('#f-onboard input').value = n; FX.sound('flip'); },
   'd-cat': el => { draft.cat = el.dataset.v; keepForm(); },
@@ -480,7 +625,7 @@ const acts = {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' }));
     a.download = `arcanum-save-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   },
-  reset: () => { if (confirm('確定要清除所有任務、貨幣與收藏嗎？此動作無法復原。')) { localStorage.removeItem(KEY); S = fresh(); tab = 'quests'; render(); } },
+  reset: () => { if (confirm('確定要清除所有任務、貨幣與收藏嗎？此動作無法復原。')) { localStorage.removeItem(KEY); S = fresh(); tab = 'study'; render(); } },
 };
 function keepForm() {
   const f = $('#f-task'), v = f ? [f.elements.title.value, f.elements.due.value] : null; render();
@@ -493,6 +638,13 @@ document.addEventListener('click', e => {
 document.addEventListener('submit', e => {
   e.preventDefault(); const f = e.target, d = new FormData(f);
   if (f.id === 'f-task') { addTask(d.get('title'), { due: d.get('due') }); FX.sound('flip'); render(); $('#f-task input')?.focus(); }
+  if (f.id === 'f-quick') { addTask(d.get('title')); FX.sound('flip'); toast('已記到任務之書'); render(); }
+  if (f.id === 'f-card') {
+    const deck = d.get('deck') || ''; let k = addCard(deck, d.get('q'), d.get('a')) ? 1 : 0;
+    for (const line of d.get('bulk').split('\n')) { const i = line.search(/[|\t｜]/); if (i > 0 && addCard(deck, line.slice(0, i), line.slice(i + 1))) k++; }
+    if (!k) return toast('請填寫問題與答案（或用「|」分隔的多行文字）');
+    draftF.deck = deck; save(); FX.sound('flip'); toast(`已加入 ${k} 張記憶卡`); render();
+  }
   if (f.id === 'f-idea') { S.ideas.unshift({ id: uid(), text: d.get('text').trim(), created: Date.now() }); S.stats.ideas++; save(); FX.sound('flip'); render(); checkAch(); }
   if (f.id === 'f-reward') { S.rewards.push({ id: uid(), name: d.get('name').trim(), icon: d.get('icon').trim() || '🎁', cost: Math.max(1, +d.get('cost') || 1), cur: d.get('cur'), minutes: Math.max(0, +d.get('minutes') || 0) }); save(); render(); toast('已加入商店'); }
   if (f.id === 'f-onboard') {
@@ -506,6 +658,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.matches('[contenteditable]')) { e.preventDefault(); e.target.blur(); }
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.matches('#f-idea textarea')) e.target.form.requestSubmit();
   if (e.key === 'Escape') $('#overlay .btn[data-act="ov-close"]')?.click();
+  if (rv && !e.target.matches('input,textarea')) { if (!rv.shown && (e.code === 'Space' || e.key === 'Enter')) { e.preventDefault(); rv.shown = true; drawReview(); } else if (rv.shown && '1234'.includes(e.key)) gradeCard(['again', 'hard', 'good', 'easy'][e.key - 1]); }
 });
 document.addEventListener('focusout', e => {
   const el = e.target;
@@ -514,13 +667,15 @@ document.addEventListener('focusout', e => {
   if (el.id === 'set-name') { const v = el.value.trim(); if (v) { S.profile.name = v; save(); render(); } }
 });
 document.addEventListener('change', e => {
+  if (e.target.id === 'fc-task') { draftF.task = e.target.value; return; }
+  if (e.target.id === 'set-goal') { ST().goal = Math.max(10, Math.min(600, +e.target.value || 60)); save(); return; }
   if (e.target.id !== 'imp') return;
   const file = e.target.files[0]; if (!file) return;
   file.text().then(txt => {
     const d = JSON.parse(txt);
     if (!d || d.v !== 1 || !d.profile || !Array.isArray(d.tasks)) throw new Error('bad');
     if (!confirm('匯入會覆蓋目前這台裝置上的進度，確定嗎？')) return;
-    S = { ...fresh(), ...d, stats: { ...fresh().stats, ...d.stats } }; save(); render(); toast('存檔已匯入');
+    S = { ...fresh(), ...d, stats: { ...fresh().stats, ...d.stats }, study: { ...fresh().study, ...d.study } }; save(); render(); toast('存檔已匯入');
   }).catch(() => toast('⚠️ 這不是有效的存檔檔案'));
 });
 document.addEventListener('animationend', e => { if (e.animationName === 'pulse') e.target.classList.remove('pulse'); });
