@@ -1,3 +1,4 @@
+import { buildCastle, LAKE, ISLAND, lakeK } from './castle.js';
 // 可遊玩的 3D 學院世界：寫實比例角色與長袍、咒語戰鬥、敵人、學生與教授、城堡大廳
 // api: { color, done:{coins,dummies,chest,kills,prof,rings}, onRings(), onCoin(id), onDummy(id), onChest(), onKill(), profTalk(id)->string, toast(html), sound(kind) }
 // 角色模型與動作：Quaternius Universal Base Characters / Universal Animation Library（CC0 授權）
@@ -17,8 +18,15 @@ const smooth = k => { k = Math.max(0, Math.min(1, k)); return k * k * (3 - 2 * k
 export function H(x, z) {
   if (x > 1000) return 0; // 室內區域
   const r = Math.hypot(x, z), k = smooth((r - 95) / 110);
-  return k * (Math.sin(x * .035) * 5 + Math.cos(z * .04 + 1) * 5 + Math.sin((x + z) * .02) * 7 + (r - 95) * .05);
+  let h = k * (Math.sin(x * .035) * 5 + Math.cos(z * .04 + 1) * 5 + Math.sin((x + z) * .02) * 7 + (r - 95) * .05);
+  // 城堡所在的台地削平
+  h *= smooth(Math.hypot(Math.max(0, Math.abs(x) - 95), Math.max(0, -172 - z, z + 30)) / 30);
+  // 北方大湖（懸崖陡降）與湖心島
+  const q = lakeK(x, z);
+  if (q < 1) { h += (-27 - h) * smooth((1 - q) * 9); const d = Math.hypot(x - ISLAND[0], z - ISLAND[1]); if (d < 32) h += (2 - h) * smooth((28 - d) / 12); }
+  return h;
 }
+const HOUSE_COLS = ['#b5452f', '#3f73a8', '#3f8a5c', '#7a56b8'];
 const CAMPS = [[150, -70], [-150, -90], [-120, 95]];
 
 export async function openWorld(api) {
@@ -67,7 +75,7 @@ export async function openWorld(api) {
     const m = new T.Mesh(new T.SphereGeometry(1100, 32, 20), new T.MeshBasicMaterial({ map: t, side: T.BackSide, fog: false, depthWrite: false })); m.rotation.y = -.745; m.renderOrder = -1; scene.add(m); return m;
   })();
   const skyTex = { dispose() {} };
-  const fogOut = new T.FogExp2(0x9a9088, .0048), fogHall = new T.FogExp2(0x0b1020, .004), hallBg = new T.Color(0x05070d);
+  const fogOut = new T.FogExp2(0x9a9088, .0036), fogHall = new T.FogExp2(0x0b1020, .004), hallBg = new T.Color(0x05070d);
   const hemi = new T.HemisphereLight(0xa8c0e0, 0x5a4a38, 1.3); scene.add(hemi);
   // 低角度的夕陽：暖色主光配冷色陰影
   const moon = new T.DirectionalLight(0xffc48a, 2.6); const SUN = new T.Vector3(-70, 34, 42); moon.position.copy(SUN); scene.add(moon, moon.target);
@@ -99,7 +107,7 @@ export async function openWorld(api) {
   const houseMat = new T.MeshStandardMaterial({ color: api.color || 0x3f73a8, roughness: .8, side: T.DoubleSide });
 
   // ---------- 碰撞體 ----------
-  const boxes = [], circles = [];
+  const boxes = [], circles = [], roofs = [];
   function box(w, h, d, x, z, mat = stone, y0 = 0, solid = true) {
     const g = new T.BoxGeometry(w, h, d), uv = g.attributes.uv, S = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
     if (mat === stone) for (let f = 0; f < 6; f++) for (let i = 0; i < 4; i++) { const k = f * 4 + i; uv.setXY(k, uv.getX(k) * S[f][0] / 5, uv.getY(k) * S[f][1] / 5); }
@@ -107,40 +115,32 @@ export async function openWorld(api) {
     if (solid) boxes.push([x - w / 2, x + w / 2, z - d / 2, z + d / 2, y0 + h]); return m;
   }
   function collide(p, r) {
-    for (const b of boxes) { if (p.y < b[4] - .5 && p.x > b[0] - r && p.x < b[1] + r && p.z > b[2] - r && p.z < b[3] + r) { const a = p.x - (b[0] - r), c = (b[1] + r) - p.x, d = p.z - (b[2] - r), e = (b[3] + r) - p.z, m = Math.min(a, c, d, e); if (m === a) p.x = b[0] - r; else if (m === c) p.x = b[1] + r; else if (m === d) p.z = b[2] - r; else p.z = b[3] + r; } }
+    for (const b of boxes) { if (p.y < b[4] - .5 && p.y + 1.8 > (b[5] ?? -1e9) && p.x > b[0] - r && p.x < b[1] + r && p.z > b[2] - r && p.z < b[3] + r) { const a = p.x - (b[0] - r), c = (b[1] + r) - p.x, d = p.z - (b[2] - r), e = (b[3] + r) - p.z, m = Math.min(a, c, d, e); if (m === a) p.x = b[0] - r; else if (m === c) p.x = b[1] + r; else if (m === d) p.z = b[2] - r; else p.z = b[3] + r; } }
     for (const c of circles) { if (p.y >= (c[3] ?? 1e9) - .5) continue; const dx = p.x - c[0], dz = p.z - c[1], d = Math.hypot(dx, dz), q = c[2] + r; if (d < q && d > 1e-4) { p.x = c[0] + dx / d * q; p.z = c[1] + dz / d * q; } }
   }
-  // 城堡主屋頂（四角錐）的高度，不在屋頂範圍內回傳 -1
-  const roofY = (x, z) => { const k = Math.max(Math.abs(x) / 23.3, Math.abs(z + 58) / 12.4); return k < 1 ? 20 + 10 * (1 - k) : -1; };
-  // 腳下的地面高度：地形、可站立的牆頂與屋頂
+  // 腳下的地面高度：地形、湖面、可站立的牆頂、橋面與屋頂
   function floorAt(p, fly) {
-    let g = H(p.x, p.z);
+    let g = H(p.x, p.z); if (lakeK(p.x, p.z) < 1.02) g = Math.max(g, LAKE.y);
     for (const b of boxes) if (b[4] > g && b[4] <= p.y + .6 && p.x > b[0] && p.x < b[1] && p.z > b[2] && p.z < b[3]) g = b[4];
-    const ry = roofY(p.x, p.z); if (ry > g && ry <= p.y + (fly ? 3 : .8)) g = ry;
+    for (const f of roofs) { const ry = f(p.x, p.z); if (ry > g && ry <= p.y + (fly ? 3 : .8)) g = ry; }
     return g;
   }
-  function tower(x, z, r, h, roofH) {
-    const g = new T.CylinderGeometry(r, r * 1.08, h, 20), uv = g.attributes.uv;
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * r * 6.28 / 5, uv.getY(i) * h / 5);
-    const m = new T.Mesh(g, stone); m.position.set(x, h / 2, z); scene.add(m);
-    const rim = new T.Mesh(new T.CylinderGeometry(r * 1.15, r, 1.2, 20), stone); rim.position.set(x, h, z); scene.add(rim);
-    const roof = new T.Mesh(new T.ConeGeometry(r * 1.25, roofH, 20), slate); roof.position.set(x, h + .6 + roofH / 2, z); scene.add(roof);
-    for (let i = 0; i < 4; i++) { const a = i * 1.5708 + .6, w = new T.Mesh(new T.PlaneGeometry(.8, 2.2), glow); w.position.set(x + Math.sin(a) * (r + .06), h * .68, z + Math.cos(a) * (r + .06)); w.rotation.y = a; scene.add(w); }
-    circles.push([x, z, r * 1.08, h + roofH * .7]);
-  }
+  const onDeck = p => boxes.some(b => p.x > b[0] && p.x < b[1] && p.z > b[2] && p.z < b[3] && b[4] > LAKE.y && b[4] <= p.y + .6);
   function archShape(w, h) { const s = new T.Shape(), b = h - w * .9; s.moveTo(-w / 2, 0); s.lineTo(-w / 2, b); s.quadraticCurveTo(-w / 2, h * .92, 0, h); s.quadraticCurveTo(w / 2, h * .92, w / 2, b); s.lineTo(w / 2, 0); s.closePath(); return s; }
   const plane = (w, d, mat, x, y, z) => { const m = new T.Mesh(new T.PlaneGeometry(w, d), mat); m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); scene.add(m); return m; };
 
   // ---------- 戶外地形 ----------
   {
-    const g = new T.PlaneGeometry(700, 700, 140, 140); g.rotateX(-Math.PI / 2);
-    const p = g.attributes.position, col = new Float32Array(p.count * 3), c = new T.Color();
+    const g = new T.PlaneGeometry(700, 700, 200, 200); g.rotateX(-Math.PI / 2);
+    const p = g.attributes.position, col = new Float32Array(p.count * 3), c = new T.Color(), shore = new T.Color(.34, .3, .24), cliff = new T.Color(.4, .38, .35);
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), z = p.getZ(i), h = H(x, z); p.setY(i, h);
       const n = Math.sin(x * .21) * Math.cos(z * .17) * .5 + .5;
       let burn = 0; for (const [cx, cz] of CAMPS.slice(0, 2)) burn = Math.max(burn, 1 - Math.hypot(x - cx, z - cz) / 22);
       burn = Math.max(0, burn);
-      c.setRGB(.20 + n * .10 + h * .006 + burn * .1, (.36 + n * .14 + h * .008) * (1 - burn * .6), .14 + n * .05 - burn * .05); col.set([c.r, c.g, c.b], i * 3);
+      c.setRGB(.20 + n * .10 + h * .006 + burn * .1, (.36 + n * .14 + h * .008) * (1 - burn * .6), .14 + n * .05 - burn * .05);
+      if (h < -.5) c.lerp(shore, smooth((-h - .5) / 4));
+      const sl = Math.abs(H(x + 2, z) - H(x - 2, z)) + Math.abs(H(x, z + 2) - H(x, z - 2)); if (sl > 2.2) c.lerp(cliff, smooth((sl - 2.2) / 3)); col.set([Math.max(0, c.r), Math.max(0, c.g), Math.max(0, c.b)], i * 3);
     }
     g.setAttribute('color', new T.BufferAttribute(col, 3)); g.computeVertexNormals();
     const grassTex = canvasTex(512, 512, c2 => { c2.fillStyle = '#c8c8c8'; c2.fillRect(0, 0, 512, 512); for (let i = 0; i < 26000; i++) { const v = 120 + rr() * 135 | 0; c2.fillStyle = `rgba(${v},${v},${v * .9 | 0},.5)`; c2.fillRect(rr() * 512, rr() * 512, 1 + rr() * 2, 2 + rr() * 5); } }, 90);
@@ -150,12 +150,23 @@ export async function openWorld(api) {
     const lake = new T.Mesh(new T.CircleGeometry(22, 48), new T.MeshStandardMaterial({ color: 0x3a6a86, metalness: .85, roughness: .08, transparent: true, opacity: .92, emissive: 0x6a4a30, emissiveIntensity: .25 }));
     lake.rotation.x = -Math.PI / 2; lake.position.set(66, .06, 34); scene.add(lake); circles.push([66, 34, 21, 1]);
   }
-  // ---------- 城堡外觀 ----------
-  box(44, 20, 22, 0, -58);
-  { const roof = new T.Mesh(new T.ConeGeometry(1, 1, 4), slate); roof.rotation.y = Math.PI / 4; roof.scale.set(33, 10, 17.5); roof.position.set(0, 25, -58); scene.add(roof); }
-  tower(-24, -47, 4.5, 28, 11); tower(24, -47, 4.5, 28, 11); tower(-24, -69, 5, 34, 12); tower(24, -69, 5, 34, 12); tower(0, -74, 6.5, 46, 16);
-  { const wg = new T.ShapeGeometry(archShape(1.8, 5.5));
-    for (const x of [-16, -11, -6, 6, 11, 16]) for (const y of [3, 11]) { const w = new T.Mesh(wg, glow); w.position.set(x, y, -46.93); scene.add(w); }
+  // ---------- 城堡：湖畔懸崖上的大城堡（見 castle.js）----------
+  let castle; {
+    const pm = new T.PMREMGenerator(R), es = new T.Scene(), sm = new T.Mesh(new T.SphereGeometry(50, 32, 16), sky.material); sm.rotation.y = sky.rotation.y; es.add(sm);
+    const env = pm.fromScene(es, 0, .1, 200).texture; pm.dispose(); sm.geometry.dispose();
+    const { mergeGeometries } = await import('three/addons/utils/BufferGeometryUtils.js');
+    castle = buildCastle(T, { scene, boxes, circles, roofs, stone, cobble: new T.MeshStandardMaterial({ map: cob(14), roughness: .95 }), H, merge: mergeGeometries, env, houses: HOUSE_COLS, rng });
+    // 水波：可無縫重複的法線貼圖
+    const wn = (() => { const N = 256, c = document.createElement('canvas'); c.width = c.height = N; const g = c.getContext('2d'), img = g.createImageData(N, N), K = Math.PI * 2 / N;
+      const hg = (x, y) => Math.sin(K * (2 * x + y) + Math.sin(K * (3 * y - x)) * 2.2) * .4 + Math.sin(K * (5 * y - 3 * x) + Math.sin(K * 4 * x) * 1.6) * .3 + Math.sin(K * (7 * x + 9 * y)) * .14 + Math.sin(K * (11 * x - 13 * y)) * .1 + Math.sin(K * (17 * y + 5 * x)) * .06;
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const dx = (hg(x + 1, y) - hg(x - 1, y)) * 6, dy = (hg(x, y + 1) - hg(x, y - 1)) * 6, l = Math.hypot(dx, dy, 1), i = (y * N + x) * 4;
+        img.data[i] = (-dx / l * .5 + .5) * 255; img.data[i + 1] = (-dy / l * .5 + .5) * 255; img.data[i + 2] = (1 / l * .5 + .5) * 255; img.data[i + 3] = 255; }
+      g.putImageData(img, 0, 0); const t = new T.CanvasTexture(c); t.wrapS = t.wrapT = T.RepeatWrapping; t.repeat.set(20, 8); return t; })();
+    const water = new T.Mesh(new T.CircleGeometry(1, 96), new T.MeshStandardMaterial({ color: 0x163448, metalness: .7, roughness: .2, normalMap: wn, normalScale: new T.Vector2(.22, .22), envMap: env, envMapIntensity: .75, emissive: 0x05121c, emissiveIntensity: .6, transparent: true, opacity: .95 }));
+    castle.water = water;
+    water.rotation.x = -Math.PI / 2; water.scale.set(LAKE.rx, LAKE.rz, 1); water.position.set(LAKE.x, LAKE.y, LAKE.z); water.userData.noCast = true; scene.add(water);
+  }
+  {
     const door = new T.Mesh(new T.ShapeGeometry(archShape(5, 8)), new T.MeshBasicMaterial({ color: 0xffc070 })); door.position.set(0, 0, -46.9); scene.add(door);
     const frame = new T.Mesh(new T.ShapeGeometry(archShape(6.2, 9.2)), slate); frame.position.set(0, 0, -46.95); scene.add(frame);
     const l = new T.PointLight(0xffb060, 80, 26, 1.8); l.position.set(0, 4, -43); outLights.add(l); }
@@ -171,7 +182,7 @@ export async function openWorld(api) {
     let n = 0;
     while (n < N) {
       const a = r() * 6.283, d = 48 + r() * 215, x = Math.cos(a) * d, z = Math.sin(a) * d;
-      if (Math.abs(x) < 46 && z > -90 && z < 44) continue; if (Math.abs(x) < 6 && z > 30 && z < 100) continue; if (Math.hypot(x - 66, z - 34) < 26) continue;
+      if (Math.abs(x) < 100 && z > -178 && z < 44) continue; if (lakeK(x, z) < 1.08) continue; if (Math.abs(x) < 6 && z > 30 && z < 100) continue; if (Math.hypot(x - 66, z - 34) < 26) continue;
       if (CAMPS.some(([cx, cz]) => Math.hypot(x - cx, z - cz) < 17)) continue;
       const k = .8 + r() * .9, y = H(x, z);
       m.compose(v.set(x, y + 1.5 * k, z), q, s.set(k, k, k)); trunk.setMatrixAt(n, m);
@@ -387,10 +398,11 @@ export async function openWorld(api) {
   function broomToggle() {
     if (!alive || P.dead || P.door) return;
     if (!P.fly && zone !== 'out') return api.toast('大廳裡不能騎掃帚，到戶外再試試');
+    if (P.fly && lakeK(player.position.x, player.position.z) < 1.02 && H(player.position.x, player.position.z) < LAKE.y + .3 && !onDeck({ x: player.position.x, z: player.position.z, y: player.position.y + 3 })) return api.toast('下面是湖水，飛到岸邊或橋上再收起掃帚');
     api.sound(P.fly ? 'flip' : 'cast'); setFly(!P.fly);
   }
   // 空中飛環
-  const RINGS = [[0, 48, 10], [48, 34, 18], [70, -20, 24], [40, -84, 34], [0, -74, 72], [-40, -84, 34], [-70, -20, 24], [-48, 34, 18]], rings = [];
+  const RINGS = [[0, 48, 10], [48, 30, 16], [72, -40, 26], [82, -120, 32], [50, -180, 24], [0, -172, 40], [-12, -154, 76], [-64, -118, 40], [-72, -40, 24], [-48, 30, 16]], rings = [];
   { const rg = new T.TorusGeometry(3, .16, 8, 40);
     RINGS.forEach(([x, z, y], i) => { const m = new T.Mesh(rg, new T.MeshBasicMaterial({ color: 0x8fe6ff, transparent: true, opacity: .95, fog: false })); m.position.set(x, y, z); const nx = RINGS[(i + 1) % RINGS.length]; m.lookAt(nx[0], nx[2], nx[1]); scene.add(m); rings.push({ m, got: false }); }); }
   let ringN = 0;
@@ -421,7 +433,7 @@ export async function openWorld(api) {
   const ring = new T.Mesh(new T.RingGeometry(.75, .9, 32), new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .8, side: T.DoubleSide, depthWrite: false })); ring.rotation.x = -1.5708; ring.visible = false; scene.add(ring);
 
   // ---------- 學生與教授 ----------
-  const TIPS = ['聽說立石陣那邊藏著寶箱，不過最近有暗影遊魂在附近徘徊。', '漂浮咒可以讓敵人動彈不得，這時候攻擊傷害會加倍喔。', '東北邊森林裡的營火？那裡聚集了暗影遊魂，小心那個高大的統領。', '我今天的作業還沒寫完⋯你的任務之書清空了嗎？', '城堡大門是開著的，星象大廳的水晶燈晚上特別漂亮。', '先做最難的那件事，剩下的一整天都會輕鬆很多。', '被遊魂打倒也沒關係，會在庭院醒過來的。', '每天來找教授報到，有完成現實任務的話會有獎勵。', '湖邊很適合發呆，但別忘了你答應自己要做的事。', '一次只專心做一件事，這是我學到最有用的咒語。'];
+  const TIPS = ['從觀星塔頂可以看到整座湖，騎掃帚飛上去試試。', '城堡東北的木廊橋通往湖心的守望塔，晚上點燈的時候最漂亮。', '鐘樓的時鐘和現實時間同步，讀書讀到忘記時間的時候抬頭看看它。', '聽說立石陣那邊藏著寶箱，不過最近有暗影遊魂在附近徘徊。', '漂浮咒可以讓敵人動彈不得，這時候攻擊傷害會加倍喔。', '東北邊森林裡的營火？那裡聚集了暗影遊魂，小心那個高大的統領。', '我今天的作業還沒寫完⋯你的任務之書清空了嗎？', '城堡大門是開著的，星象大廳的水晶燈晚上特別漂亮。', '先做最難的那件事，剩下的一整天都會輕鬆很多。', '被遊魂打倒也沒關係，會在庭院醒過來的。', '每天來找教授報到，有完成現實任務的話會有獎勵。', '湖邊很適合發呆，但別忘了你答應自己要做的事。', '一次只專心做一件事，這是我學到最有用的咒語。'];
   const npcs = [];
   let npcN = 0;
   const npc = (name, zone, pts, o = {}) => {
@@ -448,7 +460,7 @@ export async function openWorld(api) {
     const r = rng(2026), geo = new T.CylinderGeometry(.42, .42, .08, 20); geo.rotateX(1.5708);
     const spots = [[0, 4], [-14, 6], [14, 6], [-26, -30], [26, -30], [0, 46]];
     for (let id = 0; id < COIN_N; id++) {
-      let x, z; if (id < spots.length) [x, z] = spots[id]; else do { const a = r() * 6.283, d = 50 + r() * 180; x = Math.cos(a) * d; z = Math.sin(a) * d; } while ((Math.abs(x) < 44 && z < 44 && z > -90) || Math.hypot(x - 66, z - 34) < 25);
+      let x, z; if (id < spots.length) [x, z] = spots[id]; else do { const a = r() * 6.283, d = 50 + r() * 180; x = Math.cos(a) * d; z = Math.sin(a) * d; } while ((Math.abs(x) < 100 && z < 44 && z > -178) || Math.hypot(x - 66, z - 34) < 25 || lakeK(x, z) < 1.08);
       if (api.done.coins.includes(id)) continue;
       const m = new T.Mesh(geo, gold); m.position.set(x, H(x, z) + 1.1, z); scene.add(m); coins.push({ id, m, y: m.position.y });
     }
@@ -553,7 +565,7 @@ export async function openWorld(api) {
     map.fillStyle = hall ? '#0d1220' : '#1c2f2a'; map.fillRect(0, 0, 150, 150);
     map.translate(75, 75); map.rotate(yaw); map.scale(S, S); map.translate(-px, -pz);
     if (hall) { map.fillStyle = '#39414f'; map.fillRect(HX - 15, -36, 30, 72); dot(HX, 0, 2, '#ffd58a'); map.fillStyle = '#6fe0c0'; map.fillRect(HX - 3, 35, 6, 2); }
-    else { map.fillStyle = '#566064'; map.fillRect(-36, -48, 72, 84); dot(66, 34, 22, '#2a6a8c'); for (const [cx, cz] of CAMPS.slice(0, 2)) dot(cx, cz, 3, '#ff8a30'); }
+    else { map.fillStyle = '#2a5a7a'; map.beginPath(); map.ellipse(LAKE.x, LAKE.z, LAKE.rx, LAKE.rz, 0, 0, 6.283); map.fill(); map.fillStyle = '#566064'; map.fillRect(-36, -48, 72, 84); dot(66, 34, 22, '#2a6a8c'); for (const [cx, cz] of CAMPS.slice(0, 2)) dot(cx, cz, 3, '#ff8a30'); }
     map.fillStyle = '#aab4b8'; for (const b of boxes) if (Math.abs(b[0] - px) < 90) map.fillRect(b[0], b[2], b[1] - b[0], b[3] - b[2]);
     if (!hall) { for (const c of circles) if (c[2] > 3 && c[2] < 10) dot(c[0], c[1], c[2], '#aab4b8'); map.fillStyle = '#6fe0c0'; map.fillRect(-3, -47.5, 6, 2.5);
       for (const c of coins) dot(c.m.position.x, c.m.position.z, 1.6, '#f1c75b');
@@ -616,6 +628,7 @@ export async function openWorld(api) {
     const il = Math.hypot(ix, iz); if (il > 1) { ix /= il; iz /= il; }
     const run = keys.ShiftLeft || keys.ShiftRight, sp = (run ? 7.4 : 4.3) * Math.min(il, 1);
     const sn = Math.sin(yaw), cs = Math.cos(yaw), mx = (-sn * iz + cs * ix), mz = (-cs * iz - sn * ix);
+    const ox = pp.x, oz = pp.z;
     if (P.fly) { // 掃帚飛行：有慣性，往視線方向爬升或俯衝
       const top = run ? 27 : 15, m = Math.min(il, 1) / Math.max(il, 1e-3), k = Math.min(1, dt * 2.2);
       P.vx += (mx * m * top - P.vx) * k; P.vz += (mz * m * top - P.vz) * k;
@@ -626,7 +639,8 @@ export async function openWorld(api) {
       P.roll += (Math.max(-.6, Math.min(.6, -(player.rotation.y - r0) / Math.max(dt, 1e-3) * .2)) - P.roll) * Math.min(1, dt * 5);
       player.rotation.z = P.roll; player.rotation.x += (Math.max(-.45, Math.min(.45, -P.vy * .035)) - player.rotation.x) * Math.min(1, dt * 5);
     } else if (il > .05) { pp.x += mx / Math.max(il, 1e-3) * sp * dt; pp.z += mz / Math.max(il, 1e-3) * sp * dt; if (pa.lock <= 0) face(player, mx, mz, dt, 12); }
-    collide(pp, P.fly ? .5 : .32); pa.sp = P.fly ? Math.hypot(P.vx, P.vz) : il > .05 ? sp : 0;
+    collide(pp, P.fly ? .5 : .32);
+    if (!P.fly && !hall && lakeK(pp.x, pp.z) < 1.02 && H(pp.x, pp.z) < LAKE.y + .3 && !onDeck(pp)) { pp.x = ox; pp.z = oz; } pa.sp = P.fly ? Math.hypot(P.vx, P.vz) : il > .05 ? sp : 0;
     if (!hall) { const pr = Math.hypot(pp.x, pp.z); if (pr > WORLD_R) { pp.x *= WORLD_R / pr; pp.z *= WORLD_R / pr; } }
     const gy = floorAt(pp, P.fly);
     if (P.fly) {
@@ -683,6 +697,7 @@ export async function openWorld(api) {
     }
     // 收集物
     if (!hall) {
+      castle.update(time); castle.water.material.normalMap.offset.set(time * .006, time * .004);
       for (let i = coins.length - 1; i >= 0; i--) { const c = coins[i]; c.m.rotation.y += dt * 3; c.m.position.y = c.y + Math.sin(time * 2 + c.id) * .18;
         if (Math.abs(c.m.position.x - pp.x) < 1.5 && Math.abs(c.m.position.z - pp.z) < 1.5 && Math.abs(c.m.position.y - pp.y - 1) < 2.2) { puff(c.m.position, 0xffd860, 30, 5, .7, 2); scene.remove(c.m); coins.splice(i, 1); api.onCoin(c.id); api.sound('coin'); objective(); } }
       for (const g of rings) { g.m.rotation.z += dt * .6; if (g.got) continue; g.m.scale.setScalar(1 + Math.sin(time * 3) * .04);
@@ -705,7 +720,7 @@ export async function openWorld(api) {
     const wf = 60 + (P.fly ? Math.min(1, Math.hypot(P.vx, P.vz) / 27) * 16 : 0); if (Math.abs(cam.fov - wf) > .05) { cam.fov += (wf - cam.fov) * Math.min(1, dt * 4); cam.updateProjectionMatrix(); }
     const cp = Math.cos(pitch), dist = P.cd, tx = pp.x + cs * .55, tz = pp.z - sn * .55, ty = pp.y + 1.55;
     let cx = tx + sn * cp * dist, cz = tz + cs * cp * dist, cy = ty + Math.sin(pitch) * dist;
-    if (hall) { cx = Math.max(HX - 14.5, Math.min(HX + 14.5, cx)); cz = Math.max(-35.5, Math.min(35.5, cz)); cy = Math.min(13, Math.max(.5, cy)); } else cy = Math.max(cy, H(cx, cz) + .35);
+    if (hall) { cx = Math.max(HX - 14.5, Math.min(HX + 14.5, cx)); cz = Math.max(-35.5, Math.min(35.5, cz)); cy = Math.min(13, Math.max(.5, cy)); } else cy = Math.max(cy, (lakeK(cx, cz) < 1.02 ? Math.max(H(cx, cz), LAKE.y) : H(cx, cz)) + .35);
     cam.position.set(cx, cy, cz); cam.lookAt(tx, ty, tz);
     sky.position.copy(cam.position);
     if (HQ && !hall) { moon.target.position.copy(pp); moon.position.copy(pp).add(SUN); }

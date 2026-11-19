@@ -1,6 +1,6 @@
 import { FX } from './fx.js';
-import { mount } from './scenes.js';
-import { CATS, DIFFS, HOUSES, RARITY, CARDS, PACKS, TALENTS, ACHS, DEFAULT_REWARDS, CUR } from './data.js';
+import { mount, cabinet } from './scenes.js';
+import { CATS, DIFFS, HOUSES, RARITY, CARDS, PACKS, TALENTS, ACHS, RELICS, DEFAULT_REWARDS, CUR } from './data.js';
 
 // ---------- 工具 ----------
 const KEY = 'arcanum-save-v1';
@@ -107,19 +107,20 @@ function levelUp(l) {
     <button class="btn gold" data-act="ov-close">繼續</button></div>`,
     o => mount($('#stage3d', o), 'gem', { spin: 1.6 }));
 }
+const sum = o => Object.values(o || {}).reduce((a, b) => a + b, 0);
+const achCtx = () => ({ S, level: lv().level, owned: owned(), focusN: S.study.focusN || 0, focusMin: sum(S.study.log), reviews: sum(S.study.rev) });
 function checkAch() {
-  const ctx = { S, level: lv().level, owned: owned() };
+  const ctx = achCtx();
   for (const a of ACHS) {
     if (S.ach[a.id]) continue;
     const [v, g] = a.prog(ctx);
     if (v >= g) {
       S.ach[a.id] = Date.now(); S.gems += a.gems;
-      const tier = Math.min(2, Math.floor(Object.keys(S.ach).length / 6));
       enqueue(() => { FX.sound('ach'); FX.fireworks(3); return overlay(`<div class="ov-card">
         <div class="orn"><span>挑戰達成</span></div><div class="stage" id="stage3d"></div>
         <h3>${esc(a.name)}</h3><p class="sub">${esc(a.desc)}</p>
-        <div class="loot"><span>${ic('gems')} +${a.gems} 星晶</span></div>
-        <button class="btn gold" data-act="ov-close">收下</button></div>`, o => mount($('#stage3d', o), 'trophy', { tier, dist: 9 })).then(render); });
+        <div class="loot"><span>🏺 珍寶：${RELICS[a.relic]}</span><span>${ic('gems')} +${a.gems} 星晶</span></div>
+        <button class="btn gold" data-act="ov-close">收入陳列櫃</button></div>`, o => mount($('#stage3d', o), a.relic, { dist: 7.4, spin: .8 })).then(render); });
     }
   }
   save();
@@ -339,7 +340,8 @@ function openPack(pid, btn) {
 
 // ---------- 畫面 ----------
 const TABS = [['study', '修習', '🕯'], ['quests', '任務', '📜'], ['world', '世界', '🏰'], ['shop', '獎勵', '🏪'], ['cards', '卡牌', '🎴'], ['ach', '挑戰', '🏆'], ['profile', '檔案', '🧙']];
-const orn = t => `<h2 class="orn"><span>${t}</span></h2>`;
+// 標題：第一個字做成彩飾首字
+const orn = t => `<h2 class="orn"><span><b class="cap"><i>${t[0]}</i></b>${t.slice(1)}</span></h2>`;
 
 function hud() {
   const L = lv(), h = HOUSES[S.profile.house];
@@ -473,11 +475,11 @@ function vCards() {
 }
 
 function vAch() {
-  const ctx = { S, level: lv().level, owned: owned() }, got = Object.keys(S.ach).length;
+  const ctx = achCtx(), got = ACHS.filter(a => S.ach[a.id]).length;
   return `${orn('挑戰')}
-  <div class="trophy-hero"><div class="stage" id="trophy3d"></div><div><div class="big-n">${got} <small>/ ${ACHS.length}</small></div><p class="sub">已達成的挑戰<br>每項挑戰都會獎勵星晶</p></div></div>
-  <ul class="achs">${ACHS.map(a => { const [v, g] = a.prog(ctx), ok = !!S.ach[a.id]; return `<li class="ach ${ok ? 'ok' : ''}"><span class="dia sm"><em>${ok ? '🏆' : '🔒'}</em></span>
-    <div class="q-body"><b>${a.name}</b><small>${a.desc}</small><div class="bar"><i style="width:${Math.min(100, v / g * 100)}%"></i></div></div>
+  <div class="trophy-hero"><div class="stage" id="trophy3d"></div><div><div class="big-n">${got} <small>/ ${ACHS.length}</small></div><p class="sub">已收藏的魔法珍寶<br>每項挑戰都會封存一件珍寶與星晶</p></div></div>
+  <ul class="achs">${ACHS.map(a => { const [v, g] = a.prog(ctx), ok = !!S.ach[a.id]; return `<li class="ach ${ok ? 'ok' : ''}"><span class="relic" data-relic="${a.relic}" data-locked="${ok ? 0 : 1}" title="${ok ? RELICS[a.relic] : '尚未解鎖的珍寶'}"></span>
+    <div class="q-body"><b>${a.name}</b><small>${a.desc}<br>${ok ? `🏺 ${RELICS[a.relic]}` : '🔒 封印中的珍寶'}</small><div class="bar"><i style="width:${Math.min(100, v / g * 100)}%"></i></div></div>
     <span class="ach-r">${ok ? '已領取' : `${Math.min(v, g)} / ${g}`}<br>${ic('gems')} ${a.gems}</span></li>`; }).join('')}</ul>`;
 }
 
@@ -516,8 +518,8 @@ function vWorld() {
   const w = worldDay();
   return `${orn('學院世界')}
   <div class="world-hero"><div class="wh-in">
-    <h3>奧術學院・黃昏庭院</h3>
-    <p>走進可以自由探索的 3D 世界：在庭院練習咒語、和學生與教授交談、走進城堡的星象大廳，或是到森林深處驅逐暗影遊魂、尋找寶箱。</p>
+    <h3>奧術學院・湖畔古堡</h3>
+    <p>走進懸崖上的魔法城堡：在庭院練習咒語、和學生與教授交談、走進星象大廳；騎上掃帚繞過觀星塔、鐘樓和湖上的木廊橋，或到森林深處驅逐暗影遊魂、尋找寶箱。</p>
     <div class="loot"><span>${ic('coins')} 金幣 ${w.coins.length} / 20</span><span>🎯 訓練假人 ${w.dummies.length} / 3</span><span>👻 遊魂 ${Math.min(w.kills, 10)} / 10</span><span>🧰 寶箱 ${w.chest ? 1 : 0} / 1</span><span>🎓 教授 ${w.prof.length} / 2</span><span>🧹 飛環巡禮 ${w.rings ? 1 : 0} / 1</span></div>
     <button class="btn gold big ${ST().gate && ST().energy < 1 ? 'dis' : ''}" data-act="enter-world">⚔ 進入世界${ST().gate ? `　⚡ ${Math.floor(ST().energy)} 分鐘` : ''}</button>
     <small>${ST().gate ? '探索世界會消耗探索能量。專注 25 分鐘可得 10 分鐘，複習記憶卡與完成任務也會累積。' : '學習優先模式已關閉，可以自由進出世界。'}世界獎勵每天重置一次。</small>
@@ -559,10 +561,10 @@ async function enterWorld() {
 function vOnboard() {
   const h = HOUSES[obHouse];
   return `<div class="onboard"><div class="ob-l">
-    <h2 class="orn"><span>入學儀式</span></h2>
+    <div class="sigil"></div>${orn('入學儀式')}
     <p class="lead c">歡迎來到奧術學院。選擇你的學院，開始把每天的任務變成一場修行。</p>
     <div class="ob-crests">${Object.keys(HOUSES).map(k => `<button class="ob-c ${obHouse === k ? 'on' : ''}" data-act="ob-house" data-v="${k}">${crest(k, 120)}</button>`).join('')}</div>
-    <h2 class="orn"><span>${h.name}</span></h2><p class="lead c">${h.desc}</p>
+    ${orn(h.name)}<p class="lead c">${h.desc}</p>
     <form id="f-onboard" class="ob-form"><input name="name" placeholder="你的巫師名" maxlength="20" required autocomplete="off"><button class="btn gold">Ⓐ 入學</button></form>
   </div><div class="ob-r"><div class="stage" id="ob3d"></div></div></div>`;
 }
@@ -570,14 +572,19 @@ function vOnboard() {
 const views = { study: vStudy, quests: vQuests, world: vWorld, shop: vShop, cards: vCards, ach: vAch, profile: vProfile };
 function render() {
   if (!S.profile.house) {
+    document.documentElement.style.setProperty('--house', HOUSES[obHouse].color);
     app.innerHTML = vOnboard();
     mount($('#ob3d'), 'gem', { color: HOUSES[obHouse].color, spin: .7, dist: 6.5 });
     return;
   }
   const y = scrollY;
-  app.innerHTML = hud() + `<main class="view v-${tab}">${views[tab]()}</main>`;
+  document.documentElement.style.setProperty('--house', HOUSES[S.profile.house].color);
+  app.innerHTML = hud() + `<main class="view v-${tab}"><div class="sigil"></div><div class="sigil l"></div>${views[tab]()}</main>`;
   scrollTo(0, y); tick(); if (S.focus && !render.once) { render.once = 1; showFocus(); }
-  if (tab === 'ach') mount($('#trophy3d'), 'trophy', { tier: Math.min(2, Math.floor(Object.keys(S.ach).length / 6)), dist: 9 });
+  if (tab === 'ach') {
+    mount($('#trophy3d'), 'trophy', { tier: Math.min(2, Math.floor(Object.keys(S.ach).length / 7)), dist: 9 });
+    cabinet([...document.querySelectorAll('.relic')].map(el => ({ el, kind: el.dataset.relic, locked: el.dataset.locked === '1' })));
+  }
 }
 
 // ---------- 事件 ----------
@@ -681,4 +688,5 @@ document.addEventListener('change', e => {
 document.addEventListener('animationend', e => { if (e.animationName === 'pulse') e.target.classList.remove('pulse'); });
 
 render();
+if (S.profile.house) checkAch(); // 新增的挑戰若已達成，開啟時就頒發
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

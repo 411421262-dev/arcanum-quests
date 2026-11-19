@@ -76,26 +76,37 @@ export const TALENTS = {
   fortune: { name: '卡牌占卜', icon: '🃏', track: '占卜',     max: 3, desc: '開包時 4%／級 機率使卡牌升一階稀有度' },
 };
 
-// test(ctx) 回傳 [目前進度, 目標]
-const A = (id, name, desc, gems, prog) => ({ id, name, desc, gems, prog });
+// prog(ctx) 回傳 [目前進度, 目標]；relic 是達成後獲得的 3D 珍寶
+const A = (id, name, desc, gems, relic, prog) => ({ id, name, desc, gems, relic, prog });
 export const ACHS = [
-  A('t1',   '初試啼聲',   '完成第 1 個任務',        1,  x => [x.S.stats.done, 1]),
-  A('t10',  '勤奮學徒',   '完成 10 個任務',         3,  x => [x.S.stats.done, 10]),
-  A('t50',  '資深巫師',   '完成 50 個任務',         8,  x => [x.S.stats.done, 50]),
-  A('t200', '任務大師',   '完成 200 個任務',        20, x => [x.S.stats.done, 200]),
-  A('s3',   '三日之火',   '連續 3 天完成任務',      2,  x => [x.S.stats.best, 3]),
-  A('s7',   '七日誓約',   '連續 7 天完成任務',      5,  x => [x.S.stats.best, 7]),
-  A('s30',  '月之恆心',   '連續 30 天完成任務',     20, x => [x.S.stats.best, 30]),
-  A('l5',   '嶄露頭角',   '達到 5 級',              3,  x => [x.level, 5]),
-  A('l15',  '學院之星',   '達到 15 級',             10, x => [x.level, 15]),
-  A('g1k',  '小有積蓄',   '累計賺取 1000 金幣',     3,  x => [x.S.stats.coinsEarned, 1000]),
-  A('g10k', '古靈金庫',   '累計賺取 10000 金幣',    15, x => [x.S.stats.coinsEarned, 10000]),
-  A('p1',   '拆封的喜悅', '開啟第 1 個卡包',        1,  x => [x.S.stats.packs, 1]),
-  A('c10',  '收藏家',     '收集 10 種卡牌',         4,  x => [x.owned, 10]),
-  A('call', '圖鑑完成',   '收集全部卡牌',           30, x => [x.owned, CARDS.length]),
-  A('r1',   '犒賞自己',   '兌換第 1 個獎勵',        1,  x => [x.S.stats.redeemed, 1]),
-  A('i10',  '靈感泉湧',   '在思緒瓶記下 10 個想法', 2,  x => [x.S.stats.ideas, 10]),
+  A('t1',     '初試啼聲',   '完成第 1 個任務',          1,  'quill',     x => [x.S.stats.done, 1]),
+  A('t10',    '勤奮學徒',   '完成 10 個任務',           3,  'candle',    x => [x.S.stats.done, 10]),
+  A('t50',    '資深巫師',   '完成 50 個任務',           8,  'wand',      x => [x.S.stats.done, 50]),
+  A('t200',   '任務大師',   '完成 200 個任務',          20, 'grimoire',  x => [x.S.stats.done, 200]),
+  A('f1',     '點亮心燈',   '完成第 1 次專注修習',      1,  'lantern',   x => [x.focusN, 1]),
+  A('fm600',  '專注之鑰',   '累計專注 600 分鐘',        8,  'key',       x => [x.focusMin, 600]),
+  A('fm3000', '時光守護者', '累計專注 3000 分鐘',       25, 'watch',     x => [x.focusMin, 3000]),
+  A('rv100',  '記憶捲軸',   '複習 100 張記憶卡',        4,  'scroll',    x => [x.reviews, 100]),
+  A('rv1000', '過目不忘',   '複習 1000 張記憶卡',       20, 'obelisk',   x => [x.reviews, 1000]),
+  A('s3',     '三日之火',   '連續 3 天完成任務或修習',  2,  'brazier',   x => [x.S.stats.best, 3]),
+  A('s7',     '七日誓約',   '連續 7 天完成任務或修習',  5,  'hourglass', x => [x.S.stats.best, 7]),
+  A('s30',    '月之恆心',   '連續 30 天完成任務或修習', 20, 'moon',      x => [x.S.stats.best, 30]),
+  A('l5',     '嶄露頭角',   '達到 5 級',                3,  'potion',    x => [x.level, 5]),
+  A('l15',    '學院之星',   '達到 15 級',               10, 'astrolabe', x => [x.level, 15]),
+  A('l30',    '賢者之路',   '達到 30 級',               25, 'crown',     x => [x.level, 30]),
+  A('g1k',    '小有積蓄',   '累計賺取 1000 金幣',       3,  'coins',     x => [x.S.stats.coinsEarned, 1000]),
+  A('g10k',   '龍穴金庫',   '累計賺取 10000 金幣',      15, 'chest',     x => [x.S.stats.coinsEarned, 10000]),
+  A('p1',     '拆封的喜悅', '開啟第 1 個卡包',          1,  'cards',     x => [x.S.stats.packs, 1]),
+  A('c10',    '收藏家',     '收集 10 種卡牌',           4,  'crystal',   x => [x.owned, 10]),
+  A('call',   '圖鑑完成',   '收集全部卡牌',             30, 'egg',       x => [x.owned, CARDS.length]),
+  A('r1',     '犒賞自己',   '兌換第 1 個獎勵',          1,  'chalice',   x => [x.S.stats.redeemed, 1]),
+  A('i10',    '靈感泉湧',   '在思緒瓶記下 10 個想法',   2,  'bottle',    x => [x.S.stats.ideas, 10]),
 ];
+export const RELICS = {
+  quill: '初心羽毛筆', candle: '長明燭台', wand: '晨星魔杖', grimoire: '萬言魔典', lantern: '心燈提燈', key: '專注之鑰', watch: '時光懷錶',
+  scroll: '記憶捲軸', obelisk: '符文石碑', brazier: '不熄火盆', hourglass: '七日沙漏', moon: '恆心彎月', potion: '啟明藥劑', astrolabe: '星軌渾天儀',
+  crown: '賢者之冠', coins: '第一桶金', chest: '龍穴寶箱', cards: '命運牌組', crystal: '遠見水晶球', egg: '星火龍蛋', chalice: '犒賞聖杯', bottle: '思緒瓶',
+};
 
 export const DEFAULT_REWARDS = [
   { id: 'd1', name: '遊戲時間 30 分鐘', icon: '🎮', cost: 150, cur: 'coins',   minutes: 30 },
