@@ -1,6 +1,6 @@
 import { FX } from './fx.js';
-import { mount, cabinet } from './scenes.js';
-import { CATS, DIFFS, HOUSES, RARITY, CARDS, PACKS, TALENTS, ACHS, RELICS, DEFAULT_REWARDS, CUR } from './data.js';
+import { mount, cabinet, inspectCard } from './scenes.js';
+import { CATS, DIFFS, HOUSES, RARITY, CARDS, PACKS, SETS, STAR_AT, TALENTS, ACHS, RELICS, DEFAULT_REWARDS, CUR } from './data.js';
 
 // ---------- 工具 ----------
 const KEY = 'arcanum-save-v1';
@@ -14,12 +14,12 @@ const ic = k => `<i class="ic ${k}"></i>`;
 
 // ---------- 狀態 / 存檔 ----------
 const fresh = () => ({
-  v: 1, profile: { name: '', house: '' }, xp: 0, coins: 0, gems: 0, tickets: 0,
+  v: 1, profile: { name: '', house: '', title: '' }, sets: {}, xp: 0, coins: 0, gems: 0, tickets: 0,
   talentPts: 0, talents: {}, tasks: [], ideas: [], rewards: structuredClone(DEFAULT_REWARDS), bag: [],
   cards: {}, ach: {}, timer: null, sound: true, world: { day: '', coins: [], dummies: [], chest: false, kills: 0, prof: [], rings: false },
-  stats: { done: 0, coinsEarned: 0, packs: 0, streak: 0, best: 0, lastDone: '', redeemed: 0, ideas: 0 },
+  stats: { done: 0, coinsEarned: 0, packs: 0, streak: 0, best: 0, lastDone: '', redeemed: 0, ideas: 0, pity: 0 },
   // 學習：專注紀錄、記憶卡、回想筆記、探索能量（進入 3D 世界的分鐘數）
-  study: { log: {}, rev: {}, goal: 60, energy: 15, gate: true, cards: [], notes: [], focusN: 0, exams: [], slog: {}, rlog: {}, subj: '' }, focus: null,
+  study: { log: {}, rev: {}, goal: 60, energy: 15, gate: true, cards: [], notes: [], focusN: 0, exams: [], slog: {}, rlog: {}, subj: '', dailyPack: '' }, focus: null,
 });
 let S = fresh();
 try {
@@ -328,25 +328,63 @@ function tick() {
 setInterval(tick, 1000);
 
 // ---------- 卡包 ----------
-function rollCard(p) {
+function rollCard(p, atLeast) {
   let x = Math.random() * 100, r = 'c';
   for (const k of ['c', 'r', 'e', 'l']) { if (x < p.odds[k]) { r = k; break; } x -= p.odds[k]; r = k; }
   const order = ['c', 'r', 'e', 'l'];
   if (r !== 'l' && Math.random() < .04 * tal('fortune')) r = order[order.indexOf(r) + 1];
+  if (atLeast && order.indexOf(r) < order.indexOf(atLeast)) r = Math.random() < .15 ? 'l' : atLeast;
   const pool = CARDS.filter(c => c.r === r); return pool[Math.floor(Math.random() * pool.length)];
 }
-const cardFace = (c, n) => `<div class="tc r-${c.r}"><div class="tc-art">${c.icon}</div><div class="tc-name">${esc(c.name)}</div><div class="tc-rar">${RARITY[c.r].name}</div>${n > 1 ? `<div class="tc-n">×${n}</div>` : ''}</div>`;
-function openPack(pid, btn) {
+const stars = n => STAR_AT.filter(k => n >= k).length;
+const setOf = id => SETS.find(s => s.cards.includes(id));
+const cardNo = id => CARDS.findIndex(c => c.id === id) + 1;
+const starTxt = st => '★'.repeat(st) + '☆'.repeat(3 - st);
+// 卡面：卡框依稀有度、卡窗依套組配色；★3 是閃卡
+const cardFace = (c, n = 0) => { const st = stars(n), s = setOf(c.id);
+  return `<div class="tc r-${c.r} ${st >= 3 ? 'holo' : ''}" style="--th:${s ? s.hue : 40}"><i class="tc-gem"></i><div class="tc-win"><div class="tc-art">${c.icon}</div></div>
+    <div class="tc-plate"><div class="tc-name">${esc(c.name)}</div><div class="tc-rar">${RARITY[c.r].name}${n ? `<span class="tc-st">${starTxt(st)}</span>` : ''}</div></div>
+    ${n > 1 ? `<div class="tc-n">×${n}</div>` : ''}${st >= 3 ? '<div class="tc-holo">閃</div>' : ''}<i class="tc-shine"></i></div>`; };
+const unknownFace = c => { const s = setOf(c.id); return `<div class="tc unk r-${c.r}" style="--th:${s ? s.hue : 40}"><i class="tc-gem"></i><div class="tc-win"><div class="tc-art">?</div></div><div class="tc-plate"><div class="tc-name">未發現</div><div class="tc-rar">${RARITY[c.r].name}</div></div></div>`; };
+// 拿起卡牌細看（3D）
+async function inspect(id) {
+  const c = CARDS.find(x => x.id === id); if (!c || $('#inspect')) return;
+  const n = S.cards[id] || 0, st = stars(n), s = setOf(id), el = document.createElement('div'); el.id = 'inspect';
+  el.innerHTML = `<div class="ins-stage" id="ins-stage"></div><div class="ins-info">
+    <div class="ins-r r-${c.r}">${RARITY[c.r].name}${st >= 3 ? '・閃卡' : ''}</div><h3>${esc(c.name)}</h3><div class="ins-st">${starTxt(st)}</div>
+    <p class="ins-lore">「${esc(c.lore)}」</p>
+    <small>${s ? `${s.icon} ${s.name}・` : ''}No.${String(cardNo(id)).padStart(2, '0')} / ${CARDS.length}・擁有 ${n} 張</small>
+    <small>${st < 3 ? `再收集 ${STAR_AT[st] - n} 張升到 ${'★'.repeat(st + 1)}${st + 1 === 3 ? '，變成閃卡' : ''}` : '已經是最高等級的閃卡'}</small>
+    <div class="ins-btns"><button class="btn sm" data-act="ins-flip">↻ 翻面</button><button class="btn sm gold" data-act="ins-close">放下</button></div>
+    <small class="dim">拖曳卡牌可以旋轉、翻到背面</small></div>`;
+  document.body.appendChild(el); FX.sound('flip');
+  el.addEventListener('click', e => { if (e.target === el) acts['ins-close'](); });
+  el._h = await inspectCard($('#ins-stage', el), { ...c, rname: RARITY[c.r].name, stars: st, hue: s ? s.hue : 40, set: s ? s.name : '', no: cardNo(id), total: CARDS.length });
+  if (!el._h && el.isConnected) $('#ins-stage', el).innerHTML = `<div class="ins-flat">${cardFace(c, n)}</div>`;
+}
+// 集滿套組：發星晶與稱號
+function checkSets() {
+  for (const s of SETS) {
+    if (S.sets[s.id] || !s.cards.every(id => S.cards[id])) continue;
+    S.sets[s.id] = Date.now(); S.gems += s.gems; if (!S.profile.title) S.profile.title = s.title; save();
+    enqueue(() => { FX.sound('ach'); FX.fireworks(4); return overlay(`<div class="ov-card"><div class="orn"><span>套組完成</span></div><div class="bigicon">${s.icon}</div><h3>${s.name}</h3>
+      <p class="sub">集滿了這個套組的 ${s.cards.length} 張卡牌</p><div class="loot"><span>${ic('gems')} +${s.gems} 星晶</span><span>🎖 稱號「${s.title}」</span></div>
+      <small class="dim">稱號可以在「檔案」頁更換</small><button class="btn gold" data-act="ov-close">收下</button></div>`).then(render); });
+  }
+}
+function openPack(pid, btn, free = false) {
   const p = PACKS[pid];
-  if (S[p.cur] < p.cost) { FX.sound('deny'); btn.classList.add('shake'); setTimeout(() => btn.classList.remove('shake'), 400); return toast(`${CUR[p.cur]}不足，還差 ${p.cost - S[p.cur]}`); }
-  S[p.cur] -= p.cost; S.stats.packs++;
-  const got = []; let refund = 0;
+  if (!free && S[p.cur] < p.cost) { FX.sound('deny'); btn.classList.add('shake'); setTimeout(() => btn.classList.remove('shake'), 400); return toast(`${CUR[p.cur]}不足，還差 ${p.cost - S[p.cur]}`); }
+  if (!free) S[p.cur] -= p.cost; S.stats.packs++;
+  const got = []; let refund = 0, high = false; const pity = (S.stats.pity || 0) >= 9; // 第 10 包保底史詩以上
   for (let i = 0; i < p.n; i++) {
-    const c = rollCard(p), dup = (S.cards[c.id] || 0) > 0;
+    const c = rollCard(p, pity && !high && i === p.n - 1 ? 'e' : null), dup = (S.cards[c.id] || 0) > 0;
+    if (c.r === 'e' || c.r === 'l') high = true;
     S.cards[c.id] = (S.cards[c.id] || 0) + 1;
     if (dup) refund += RARITY[c.r].dup;
-    got.push({ c, dup });
+    got.push({ c, dup, up: stars(S.cards[c.id]) > stars(S.cards[c.id] - 1) && S.cards[c.id] > 1 });
   }
+  S.stats.pity = high ? 0 : (S.stats.pity || 0) + 1;
   if (refund) grant({ coins: refund });
   save(); render();
   enqueue(() => overlay(`<div class="ov-pack">
@@ -358,6 +396,7 @@ function openPack(pid, btn) {
     const stage = $('#stage3d', o), h3d = await mount(stage, 'pack', { color: p.color, dist: 8 });
     if (h3d) $('.css-pack', stage)?.remove();
     let opened = false;
+    $('#pk-hint', o).textContent = `點擊卡包，施放開封咒${pity ? '（這包保底史詩以上）' : ''}`;
     stage.addEventListener('click', async () => {
       if (opened) return; opened = true; $('#pk-hint', o).textContent = '⋯';
       FX.sound('cast');
@@ -369,18 +408,18 @@ function openPack(pid, btn) {
       const fl = document.createElement('div'); fl.className = 'flash'; document.body.appendChild(fl); setTimeout(() => fl.remove(), 700);
       h3d && h3d.dispose(); stage.remove(); $('#pk-hint', o).textContent = '點擊卡牌翻開';
       const rv = $('#reveal', o);
-      rv.innerHTML = got.map((g, i) => `<div class="flip" data-i="${i}" style="animation-delay:${i * 90}ms"><div class="flip-in"><div class="flip-back">✦</div><div class="flip-front">${cardFace(g.c)}${g.dup ? `<div class="dup">重複 +${RARITY[g.c.r].dup}${ic('coins')}</div>` : '<div class="new">NEW</div>'}</div></div></div>`).join('');
+      rv.innerHTML = got.map((g, i) => `<div class="flip" data-i="${i}" style="animation-delay:${i * 90}ms"><div class="flip-in"><div class="flip-back">✦</div><div class="flip-front">${cardFace(g.c, S.cards[g.c.id])}${g.up ? `<div class="new up">升星 ${starTxt(stars(S.cards[g.c.id]))}</div>` : g.dup ? `<div class="dup">重複 +${RARITY[g.c.r].dup}${ic('coins')}</div>` : '<div class="new">NEW</div>'}</div></div></div>`).join('');
       let left = got.length;
       rv.addEventListener('click', e => {
-        const f = e.target.closest('.flip'); if (!f || f.classList.contains('on')) return;
+        const f = e.target.closest('.flip'); if (!f) return; if (f.classList.contains('on')) return inspect(got[+f.dataset.i].c.id);
         f.classList.add('on'); const g = got[+f.dataset.i], fb = f.getBoundingClientRect();
         const big = g.c.r === 'e' || g.c.r === 'l'; FX.sound(big ? 'rare' : 'flip');
         FX.burst(fb.left + fb.width / 2, fb.top + fb.height / 2, RARITY[g.c.r].color, big ? 90 : 24, big ? 520 : 240);
         if (g.c.r === 'l') FX.fireworks(4);
-        if (--left === 0) { $('#pk-hint', o).textContent = refund ? `重複卡牌已轉換為 ${refund} 金幣` : '全新收藏入手！'; $('#pk-foot', o).innerHTML = `<button class="btn gold" data-act="ov-close">收入圖鑑</button>`; }
+        if (--left === 0) { $('#pk-hint', o).textContent = (refund ? `重複卡牌已轉換為 ${refund} 金幣。` : '全新收藏入手！') + '點擊卡牌可以拿起來細看'; $('#pk-foot', o).innerHTML = `<button class="btn gold" data-act="ov-close">收入圖鑑</button>`; }
       });
     });
-  }).then(() => { render(); checkAch(); }));
+  }).then(() => { render(); checkSets(); checkAch(); }));
 }
 
 // ---------- 畫面 ----------
@@ -395,7 +434,7 @@ function hud() {
       <div class="hex" style="--hc:${h.color}"><b>${L.level}</b></div>
       <div class="who-t"><div class="name">${esc(S.profile.name)}</div>
         <div class="xpbar"><i style="width:${(L.cur / L.need * 100).toFixed(1)}%"></i></div>
-        <small>${h.name}　${S.stats.streak ? `🔥 連續 ${S.stats.streak} 天` : '今日尚未施法'}</small></div>
+        <small>${S.profile.title ? `「${esc(S.profile.title)}」` : h.name}　${S.stats.streak ? `🔥 連續 ${S.stats.streak} 天` : '今日尚未施法'}</small></div>
     </button>
     <nav class="tabs">${TABS.map(([k, n, e]) => `<button class="${tab === k ? 'on' : ''}" data-act="tab" data-tab="${k}"><em>${e}</em><span>${n}</span></button>`).join('')}</nav>
     <div class="purse">
@@ -562,14 +601,20 @@ function vShop() {
 }
 
 function vCards() {
-  const n = owned();
+  const n = owned(), pity = S.stats.pity || 0, goal = ST().goal, got = minsToday(), claimed = ST().dailyPack === today(), can = got >= goal && !claimed;
   return `${orn('卡牌圖鑑')}
+  <div class="daily ${can ? 'on' : ''}"><div class="daily-ic">📜</div><div class="daily-t"><b>今日修習獎勵</b><small>${claimed ? '今天已經領過了，明天完成目標再來。' : can ? '今天的專注目標達成了，可以免費開一包學徒卡包！' : `再專注 ${goal - got} 分鐘達成今日目標，就能免費開一包學徒卡包。`}</small></div>
+    <button class="btn ${can ? 'gold' : 'dis'}" data-act="daily-pack">${claimed ? '已領取' : '免費開包'}</button></div>
   <div class="grid packs">${Object.entries(PACKS).map(([k, p]) => `<div class="pack" style="--pc:${p.color}"><div class="pack-art"><i>✦</i><b>ARCANUM</b></div>
     <div class="item-n">${p.name}</div><div class="item-m">${p.desc}</div>
     <button class="btn buy ${S[p.cur] >= p.cost ? 'gold' : 'dis'}" data-act="pack" data-id="${k}">${ic(p.cur)} ${p.cost}</button></div>`).join('')}</div>
-  <h3 class="sec">收藏進度 <small>${n} / ${CARDS.length}</small></h3>
+  <p class="pity">${pity >= 9 ? '<b>下一包</b>必定獲得史詩以上的卡牌' : `再開 <b>${10 - pity}</b> 包，必定獲得史詩以上的卡牌`}</p>
+  <h3 class="sec">收藏進度 <small>${n} / ${CARDS.length}・閃卡 ${CARDS.filter(c => stars(S.cards[c.id] || 0) >= 3).length} 張</small></h3>
   <div class="bar"><i style="width:${n / CARDS.length * 100}%"></i></div>
-  <div class="grid coll">${CARDS.map(c => S.cards[c.id] ? `<div class="slot" title="${esc(c.lore)}">${cardFace(c, S.cards[c.id])}</div>` : `<div class="slot"><div class="tc unk r-${c.r}"><div class="tc-art">?</div><div class="tc-name">未發現</div><div class="tc-rar">${RARITY[c.r].name}</div></div></div>`).join('')}</div>`;
+  <p class="lead">點擊卡牌可以拿起來細看。同一張卡收集到 3 張升為 ★★，6 張升為 ★★★ 閃卡；集滿一個套組可以得到星晶和稱號。</p>
+  ${SETS.map(s => { const k = s.cards.filter(id => S.cards[id]).length, done = S.sets[s.id];
+    return `<div class="cset ${done ? 'done' : ''}" style="--th:${s.hue}"><div class="cset-h"><b>${s.icon} ${s.name}</b><small>${k} / ${s.cards.length}　${done ? `已完成・稱號「${s.title}」` : `集滿可得 ${ic('gems')}${s.gems} 與稱號「${s.title}」`}</small></div>
+      <div class="grid coll">${s.cards.map(id => { const c = CARDS.find(x => x.id === id); return S.cards[id] ? `<div class="slot" data-act="inspect" data-card="${id}">${cardFace(c, S.cards[id])}</div>` : `<div class="slot">${unknownFace(c)}</div>`; }).join('')}</div></div>`; }).join('')}`;
 }
 
 function vAch() {
@@ -585,7 +630,7 @@ function vProfile() {
   const L = lv(), h = HOUSES[S.profile.house];
   return `${orn('巫師檔案')}
   <div class="sheet">
-    <div class="sheet-l">${crest(S.profile.house, 150)}<h3>${esc(S.profile.name)}</h3><p class="sub">${h.name}・${h.en}</p>
+    <div class="sheet-l">${crest(S.profile.house, 150)}<h3>${esc(S.profile.name)}</h3>${S.profile.title ? `<p class="ptitle">「${esc(S.profile.title)}」</p>` : ''}<p class="sub">${h.name}・${h.en}</p>
       <div class="hex big" style="--hc:${h.color}"><b>${L.level}</b></div><div class="xpbar wide"><i style="width:${L.cur / L.need * 100}%"></i></div><small>${L.cur} / ${L.need} XP</small></div>
     <div class="sheet-r">
       <div class="stats">
@@ -602,6 +647,7 @@ function vProfile() {
   <div class="panel settings">
     <label>巫師名<input id="set-name" value="${esc(S.profile.name)}" maxlength="20"></label>
     <div class="seg">${Object.entries(HOUSES).map(([k, x]) => `<button class="chip ${S.profile.house === k ? 'on' : ''}" style="--cc:${x.color}" data-act="set-house" data-v="${k}">${x.name}</button>`).join('')}</div>
+    <div class="seg">稱號：${SETS.some(s => S.sets[s.id]) ? ['', ...SETS.filter(s => S.sets[s.id]).map(s => s.title)].map(t => `<button class="chip ${S.profile.title === t ? 'on' : ''}" data-act="set-title" data-v="${t}">${t || '不顯示'}</button>`).join('') : '<small class="dim">集滿一個卡牌套組就能解鎖稱號</small>'}</div>
     <div class="seg"><button class="chip ${ST().gate ? 'on' : ''}" data-act="gate">${ST().gate ? '🎓 學習優先模式：開啟（世界需要探索能量）' : '🎓 學習優先模式：關閉'}</button>
       <label class="chip">每日專注目標 <input id="set-goal" type="number" min="10" max="600" step="5" value="${ST().goal}" style="width:4.5em"> 分鐘</label></div>
     <div class="seg"><button class="chip ${S.sound ? 'on' : ''}" data-act="sound">${S.sound ? '🔊 音效開啟' : '🔇 音效關閉'}</button>
@@ -689,6 +735,15 @@ function render() {
 const acts = {
   tab: el => { tab = el.dataset.tab; render(); scrollTo(0, 0); },
   'enter-world': () => enterWorld(),
+  inspect: el => inspect(el.dataset.card),
+  'ins-flip': () => $('#inspect')?._h?.flip(),
+  'ins-close': () => { const e = $('#inspect'); if (!e) return; e._h?.dispose(); e.remove(); },
+  'set-title': el => { S.profile.title = el.dataset.v; save(); render(); },
+  'daily-pack': el => {
+    if (ST().dailyPack === today()) return toast('今天的修習獎勵已經領過了');
+    if (minsToday() < ST().goal) { FX.sound('deny'); return toast(`再專注 ${ST().goal - minsToday()} 分鐘達成今日目標，就能領取`); }
+    ST().dailyPack = today(); save(); openPack('apprentice', el, true);
+  },
   'f-mins': el => { draftF.mins = +el.dataset.v; render(); },
   'focus-start': () => startFocus(), 'focus-show': () => showFocus(), 'focus-hide': () => $('#focus')?.remove(),
   'focus-stop': () => { if (confirm('要提早結束這次專注嗎？已經過的時間仍會計入（滿 5 分鐘）。')) endFocus(false); },
@@ -744,6 +799,17 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   const fn = acts[el.dataset.act]; if (fn) { if (el.tagName === 'BUTTON' && el.type !== 'submit') e.preventDefault(); fn(el); }
 });
+// 卡牌：滑鼠移過時跟著傾斜，光澤跟著移動，卡窗裡的圖案有深度
+let tiltEl = null;
+const TILT_VARS = ['--rx', '--ry', '--mx', '--my', '--px', '--py'];
+document.addEventListener('pointermove', e => {
+  const t = e.pointerType === 'touch' ? null : e.target.closest?.('.slot .tc:not(.unk), .flip.on .tc');
+  if (tiltEl && tiltEl !== t) { tiltEl.classList.remove('tilt'); TILT_VARS.forEach(v => tiltEl.style.removeProperty(v)); tiltEl = null; }
+  if (!t) return;
+  const b = t.getBoundingClientRect(), x = (e.clientX - b.left) / b.width - .5, y = (e.clientY - b.top) / b.height - .5;
+  t.classList.add('tilt'); tiltEl = t;
+  [`${(-y * 22).toFixed(1)}deg`, `${(x * 26).toFixed(1)}deg`, `${((x + .5) * 100).toFixed(1)}%`, `${((y + .5) * 100).toFixed(1)}%`, x.toFixed(3), y.toFixed(3)].forEach((v, i) => t.style.setProperty(TILT_VARS[i], v));
+});
 document.addEventListener('submit', e => {
   e.preventDefault(); const f = e.target, d = new FormData(f);
   if (f.id === 'f-task') { addTask(d.get('title'), { due: d.get('due') }); FX.sound('flip'); render(); $('#f-task input')?.focus(); }
@@ -777,7 +843,7 @@ document.addEventListener('submit', e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.matches('[contenteditable]')) { e.preventDefault(); e.target.blur(); }
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.matches('#f-idea textarea')) e.target.form.requestSubmit();
-  if (e.key === 'Escape') $('#overlay .btn[data-act="ov-close"]')?.click();
+  if (e.key === 'Escape') { if ($('#inspect')) return acts['ins-close'](); $('#overlay .btn[data-act="ov-close"]')?.click(); }
   if (rv && !e.target.matches('input,textarea')) { if (!rv.shown && (e.code === 'Space' || e.key === 'Enter')) { e.preventDefault(); rv.shown = true; drawReview(); } else if (rv.shown && '1234'.includes(e.key) && GRADES()[e.key - 1]) gradeCard(GRADES()[e.key - 1][0]); }
 });
 document.addEventListener('focusout', e => {
@@ -803,5 +869,5 @@ document.addEventListener('change', e => {
 document.addEventListener('animationend', e => { if (e.animationName === 'pulse') e.target.classList.remove('pulse'); });
 
 render();
-if (S.profile.house) checkAch(); // 新增的挑戰若已達成，開啟時就頒發
+if (S.profile.house) { checkSets(); checkAch(); } // 新增的挑戰若已達成，開啟時就頒發
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

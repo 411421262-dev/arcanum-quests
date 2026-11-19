@@ -93,7 +93,7 @@ small{color:var(--dim);font-size:.82rem}
 .bar{width:100%}.bar i{display:block;height:100%;background:linear-gradient(90deg,#8a6420,#e8c56a,#fff0b8);box-shadow:0 0 6px rgba(212,168,69,.7);transition:width .6s}
 .view .bar,.ov-card .bar,.view .xpbar{background:rgba(70,40,15,.14)}
 .tabs{display:flex;justify-content:center;gap:2px}
-.tabs button{position:relative;padding:10px 15px;font:700 1.02rem var(--serif);letter-spacing:.2em;color:#cdb07a;text-shadow:0 1px 0 #000,0 -1px 0 rgba(255,220,150,.12);transition:color .2s}
+.tabs button{position:relative;padding:10px 12px;font:700 1.02rem var(--serif);letter-spacing:.16em;white-space:nowrap;color:#cdb07a;text-shadow:0 1px 0 #000,0 -1px 0 rgba(255,220,150,.12);transition:color .2s}
 .tabs button em{display:none;font-style:normal}
 .tabs button:hover{color:#f3e2bb}
 .tabs button.on{color:#f6e2a4;text-shadow:0 0 14px rgba(243,217,142,.55),0 1px 0 #000}
@@ -477,3 +477,61 @@ body:has(#world) #toasts{bottom:auto;top:110px}
 .rv-why{display:block;color:var(--dim);font-size:.9rem}
 .rv-grade.two{grid-template-columns:repeat(2,1fr)}
 .deck.wrong{--bk:#4a1226}.deck.wrong b::before{content:'✗ ';color:#ff9a80}
+
+/* ---------- 卡牌：依稀有度的卡框、套組配色的卡窗、滑鼠傾斜與光澤 ---------- */
+.tc{--rc:#c08a4a;--f1:#3e2614;--f2:#9a6a38;--f3:#f0c98a;--th:40;--rx:0deg;--ry:0deg;position:relative;aspect-ratio:5/7;container-type:inline-size;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:3.5%;padding:12% 6.5% 6%;overflow:hidden;border:0;
+  border-radius:7%/5%;color:#2e1c0e;text-align:center;cursor:pointer;
+  background:repeating-linear-gradient(45deg,rgba(0,0,0,.08) 0 1px,transparent 1px 5px),linear-gradient(135deg,var(--f1),var(--f2) 28%,var(--f3) 46%,var(--f2) 60%,var(--f1));
+  box-shadow:0 6px 14px rgba(40,20,5,.5),inset 0 0 0 1px rgba(255,255,255,.45),inset 0 0 0 4px rgba(0,0,0,.28),inset 0 0 0 5px rgba(255,255,255,.2);
+  transform:perspective(700px) rotateX(var(--rx)) rotateY(var(--ry));transition:transform .4s cubic-bezier(.2,.8,.3,1),box-shadow .3s;will-change:transform}
+.tc.tilt{transition:transform .08s linear,box-shadow .3s;box-shadow:0 16px 30px rgba(40,20,5,.55),0 0 22px color-mix(in srgb,var(--rc) 55%,transparent),inset 0 0 0 1px rgba(255,255,255,.45),inset 0 0 0 4px rgba(0,0,0,.28)}
+.r-c{--rc:#c08a4a;--f1:#3e2614;--f2:#9a6a38;--f3:#f0c98a}
+.r-r{--rc:#6fb0e0;--f1:#22344a;--f2:#8aa6c0;--f3:#f4fbff}
+.r-e{--rc:#b07cf0;--f1:#22104a;--f2:#8a5ac8;--f3:#f2dcff}
+.r-l{--rc:#f1c75b;--f1:#4a3006;--f2:#d8a43a;--f3:#fff4c8}
+.tc-gem{position:absolute;top:3.2%;left:50%;width:8%;aspect-ratio:1;transform:translateX(-50%) rotate(45deg);background:radial-gradient(circle at 30% 30%,#fff,var(--rc) 45%,#000 130%);box-shadow:0 0 6px var(--rc),0 0 0 1.5px var(--f3);z-index:2}
+.tc-win{position:relative;flex:1 1 auto;min-height:0;overflow:hidden;border-radius:3px;
+  background:radial-gradient(circle at 50% 44%,hsl(var(--th) 70% 56%),hsl(var(--th) 60% 28%) 42%,hsl(var(--th) 55% 8%) 85%);box-shadow:inset 0 0 0 2px rgba(0,0,0,.45),inset 0 0 18px rgba(0,0,0,.7),0 0 0 1.5px var(--f3),0 0 0 3px rgba(0,0,0,.35)}
+.tc-win::before{content:'';position:absolute;inset:-20%;background:repeating-conic-gradient(from 0deg at 50% 44%,rgba(255,255,255,.09) 0 5deg,transparent 5deg 20deg);transform:translate(calc(var(--px,0) * 8%),calc(var(--py,0) * 8%))}
+.tc-win::after{content:'';position:absolute;inset:0;background:radial-gradient(circle,rgba(255,255,255,.8) .6px,transparent 1.2px) 0 0/19px 23px,radial-gradient(circle,rgba(255,255,255,.5) .5px,transparent 1px) 9px 11px/27px 31px;opacity:.55}
+.tc-art{position:absolute;inset:0;display:grid;place-items:center;z-index:1;font-size:38cqw;line-height:1;filter:drop-shadow(0 4px 6px rgba(0,0,0,.6)) drop-shadow(0 0 10px hsl(var(--th) 95% 70% / .7));transform:translate(calc(var(--px,0) * -10%),calc(var(--py,0) * -10%)) scale(1.04);transition:transform .4s}
+.tc.tilt .tc-art{transition:transform .08s linear}
+.tc-plate{flex:none;padding:5% 3% 4%;border-radius:3px;background:linear-gradient(#f8ecd0,#e0c898);box-shadow:inset 0 0 0 1px rgba(80,48,20,.5),0 1px 2px rgba(0,0,0,.4)}
+.tc-name{font-weight:700;font-size:11cqw;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tc-rar{font-size:7cqw;letter-spacing:.12em;color:#7a4a14;line-height:1.3}.tc-st{margin-left:.4em;color:#c8901c;letter-spacing:0}
+.tc-n{position:absolute;top:3.2%;right:6%;z-index:3;font:700 9cqw var(--fell);color:#fff;text-shadow:0 1px 3px #000}
+.tc-holo{position:absolute;top:3%;left:6%;z-index:3;font-size:8cqw;font-weight:700;color:#fff;padding:0 3%;border-radius:3px;background:linear-gradient(90deg,#ff6a8a,#ffd36a,#6aff9a,#6ac8ff,#c86aff);text-shadow:0 1px 2px rgba(0,0,0,.6)}
+.tc-shine{position:absolute;inset:0;z-index:4;pointer-events:none;border-radius:inherit;opacity:0;transition:opacity .3s;mix-blend-mode:overlay;background:radial-gradient(farthest-corner circle at var(--mx,50%) var(--my,30%),rgba(255,255,255,.75),rgba(255,255,255,0) 50%)}
+.tc.tilt .tc-shine,.tc.holo .tc-shine{opacity:1}
+.tc.r-r .tc-shine::after,.tc.r-e .tc-shine::after,.tc.r-l .tc-shine::after,.tc.holo .tc-shine::after{content:'';position:absolute;inset:0;border-radius:inherit;mix-blend-mode:color-dodge;opacity:.45;
+  background:linear-gradient(115deg,transparent 25%,rgba(255,255,255,.55) calc(var(--mx,50%) - 8%),rgba(170,220,255,.6) var(--mx,50%),rgba(255,200,255,.5) calc(var(--mx,50%) + 8%),transparent 75%)}
+.tc.holo .tc-shine::after{opacity:.42;background:repeating-linear-gradient(115deg,#ff6a8a 0,#ffd36a 6%,#6aff9a 12%,#6ac8ff 18%,#c86aff 24%,#ff6a8a 30%) calc(var(--mx,50%) * 2) 0/300% 100%}
+.tc.holo{box-shadow:0 6px 14px rgba(40,20,5,.5),0 0 16px rgba(200,150,255,.6),inset 0 0 0 1px rgba(255,255,255,.6),inset 0 0 0 4px rgba(0,0,0,.28)}
+.tc.unk{cursor:default;filter:grayscale(.9) brightness(.5) sepia(.35)}.tc.unk .tc-art{font:700 30cqw var(--disp);color:var(--f3);filter:none}
+.tc.r-l:not(.unk){animation:legend 2.4s infinite}
+@keyframes legend{50%{box-shadow:0 6px 14px rgba(40,20,5,.5),0 0 26px #f1c75b,inset 0 0 0 1px rgba(255,255,255,.45),inset 0 0 0 4px rgba(0,0,0,.28)}}
+.slot{border-radius:7%/5%}.slot[data-act]{cursor:pointer}
+.new.up{background:linear-gradient(90deg,#c8901c,#ffe28a);color:#2a1604}
+/* 今日修習獎勵、保底、套組 */
+.daily{display:flex;align-items:center;gap:14px;margin-bottom:16px;padding:12px 16px;background:var(--panel);border:1px solid var(--line);box-shadow:inset 0 0 0 3px rgba(255,248,226,.45),inset 0 0 0 4px var(--line)}
+.daily.on{border-color:#b8862a;background:linear-gradient(90deg,rgba(240,196,96,.3),var(--panel));animation:relicGlow 3s infinite}
+.daily-ic{font-size:2rem}.daily-t{flex:1;display:flex;flex-direction:column}.daily-t b{font-size:1.05rem}
+.pity{text-align:center;margin:10px 0 0;color:var(--dim)}.pity b{color:var(--rubric);font-size:1.15rem}
+.cset{margin-top:22px;padding:14px 14px 18px;border:1px solid var(--line);background:linear-gradient(180deg,hsl(var(--th) 50% 50% / .1),transparent 40%)}
+.cset.done{border-color:#b8862a;box-shadow:inset 0 0 0 1px rgba(255,240,190,.7)}
+.cset-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:12px}.cset-h b{font-size:1.12rem;color:var(--rubric)}
+.cset .coll{grid-template-columns:repeat(5,1fr)}
+.ptitle{color:var(--rubric);font-weight:700;letter-spacing:.1em}
+/* 3D 卡牌檢視 */
+#inspect{position:fixed;inset:0;z-index:870;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(260px,.75fr);align-items:center;gap:24px;padding:24px 6vw;
+  background:radial-gradient(55% 70% at 38% 50%,rgba(90,55,20,.55),rgba(0,0,0,.95));backdrop-filter:blur(6px);animation:fadein .3s}
+.ins-stage{height:min(86vh,780px);cursor:grab;touch-action:none}.ins-stage:active{cursor:grabbing}.ins-stage canvas{display:block}
+.ins-flat{width:min(320px,80%);margin:0 auto}
+.ins-info{display:flex;flex-direction:column;gap:10px;max-width:420px;color:#efe3c6}
+.ins-r{align-self:flex-start;padding:2px 12px;border-radius:2px;font-weight:700;letter-spacing:.2em;color:#1a1004;background:var(--rc)}
+.ins-info h3{font-size:2.2rem;letter-spacing:.14em;color:#f6dc8e;text-shadow:0 2px 10px #000}
+.ins-st{font-size:1.5rem;letter-spacing:5px;color:#f2c94c}
+.ins-lore{font-size:1.15rem;font-style:italic;color:#e8d6b0;border-left:2px solid var(--gold);padding-left:12px;margin:6px 0}
+.ins-info small{color:#c8b48c}.ins-btns{display:flex;gap:10px;margin-top:8px}
+
+@media(min-width:861px) and (max-width:1240px){.tabs button{padding:10px 7px;letter-spacing:.06em;font-size:.96rem}.hud{gap:10px;padding-left:14px;padding-right:14px}.xpbar{width:110px}.name{max-width:7em}}

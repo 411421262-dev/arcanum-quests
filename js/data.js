@@ -61,6 +61,16 @@ export const CARDS = [
   C('l03', '星辰古龍', '🌌', 'l', '牠的鱗片即是夜空。'),
 ];
 
+// 卡牌套組：集滿一組可得星晶與稱號；hue 是卡面背景的色相
+export const SETS = [
+  { id: 'desk',     name: '學徒書桌', icon: '🪶', hue: 36,  cards: ['c02', 'c07', 'c08', 'c04', 'r05'], gems: 5,  title: '博學學徒' },
+  { id: 'beasts',   name: '夜行奇獸', icon: '🦉', hue: 196, cards: ['c01', 'c05', 'c09', 'c10', 'r01'], gems: 6,  title: '馴獸師' },
+  { id: 'arcana',   name: '祕法器物', icon: '🔮', hue: 268, cards: ['r02', 'r03', 'r04', 'r07', 'e04'], gems: 10, title: '祕法收藏家' },
+  { id: 'elements', name: '元素之力', icon: '🔥', hue: 14,  cards: ['c03', 'c06', 'r06', 'e03', 'e02'], gems: 10, title: '元素調和者' },
+  { id: 'legends',  name: '傳說之境', icon: '🐉', hue: 46,  cards: ['e01', 'e05', 'l01', 'l02', 'l03'], gems: 30, title: '傳說見證者' },
+];
+export const STAR_AT = [1, 3, 6]; // 同一張卡擁有 1／3／6 張時為 ★1／★2／★3，★3 是閃卡
+
 export const PACKS = {
   apprentice: { name: '學徒卡包', n: 3, cost: 200, cur: 'coins',   color: '#3f73a8', odds: { c: 70, r: 25, e: 4.5, l: 0.5 }, desc: '3 張卡牌，入門首選' },
   arcane:     { name: '祕法卡包', n: 5, cost: 5,   cur: 'gems',    color: '#7a56b8', odds: { c: 45, r: 38, e: 14, l: 3 },   desc: '5 張卡牌，稀有率提升' },

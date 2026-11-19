@@ -435,7 +435,7 @@ const build = {
 const RELIC = new Set(['quill', 'candle', 'wand', 'grimoire', 'brazier', 'hourglass', 'moon', 'potion', 'astrolabe', 'coins', 'chest', 'cards', 'crystal', 'egg', 'chalice', 'bottle', 'lantern', 'key', 'watch', 'scroll', 'obelisk', 'crown']);
 
 function disposeScene(scene) {
-  scene.traverse(o => { o.geometry && o.geometry.dispose(); [].concat(o.material || []).forEach(m => { m.map && m.map !== haloTex && m.map.dispose(); m.emissiveMap && m.emissiveMap.dispose(); m.dispose(); }); });
+  scene.traverse(o => { o.geometry && o.geometry.dispose(); [].concat(o.material || []).forEach(m => { m.map && m.map !== haloTex && m.map.dispose(); m.emissiveMap && m.emissiveMap.dispose(); m.metalnessMap && m.metalnessMap.dispose(); m.dispose(); }); });
 }
 
 export async function mount(el, kind, opts = {}) {
@@ -526,4 +526,153 @@ export async function cabinet(items) {
   }
   requestAnimationFrame(frame);
   return { dispose };
+}
+
+// ---------- 卡牌 3D 檢視：卡窗有深度視差、閃卡光澤、可以拖曳翻轉 ----------
+const CW = 2.5, CH = 3.5, PAL = { c: ['#3e2614', '#9a6a38', '#f0c98a'], r: ['#22344a', '#8aa6c0', '#f4fbff'], e: ['#22104a', '#8a5ac8', '#f2dcff'], l: ['#4a3006', '#d8a43a', '#fff4c8'] };
+const GEMC = { c: '#c08a4a', r: '#6fb0e0', e: '#b07cf0', l: '#f1c75b' }, WIN = { x: 40, y: 92, w: 420, h: 362 };
+const rrect = (g, x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+function wrapText(g, text, x, y, maxW, lh, lines = 2) {
+  let line = '', n = 0;
+  for (const ch of text) { if (g.measureText(line + ch).width > maxW && line) { g.fillText(line, x, y + n * lh); line = ch; if (++n >= lines) return; } else line += ch; }
+  if (line) g.fillText(line, x, y + n * lh);
+}
+function cardFront(o, metal = false) {
+  return ctex(500, 700, (g, w, h) => {
+    const [d, m, l] = PAL[o.r];
+    rrect(g, 0, 0, w, h, 30); g.clip();
+    if (metal) { g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); }
+    else {
+      const gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, d); gr.addColorStop(.28, m); gr.addColorStop(.46, l); gr.addColorStop(.6, m); gr.addColorStop(1, d);
+      g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      g.globalAlpha = .12; g.strokeStyle = '#000'; g.lineWidth = 1; for (let i = -h; i < w; i += 7) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + h, h); g.stroke(); } g.globalAlpha = 1;
+      g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 3; rrect(g, 12, 12, w - 24, h - 24, 22); g.stroke();
+      g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 2; rrect(g, 20, 20, w - 40, h - 40, 18); g.stroke();
+    }
+    // 名牌與說明欄（不是金屬）
+    const plate = (x, y, pw, ph) => { if (metal) { g.fillStyle = '#000'; rrect(g, x, y, pw, ph, 8); g.fill(); return; } const pg = g.createLinearGradient(0, y, 0, y + ph); pg.addColorStop(0, '#f8ecd0'); pg.addColorStop(1, '#e0c898'); g.fillStyle = pg; rrect(g, x, y, pw, ph, 8); g.fill(); g.strokeStyle = 'rgba(70,40,10,.6)'; g.lineWidth = 2; g.stroke(); };
+    plate(56, 474, 388, 70); plate(56, 556, 388, 98);
+    if (!metal) {
+      g.fillStyle = '#2e1c0e'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '700 38px "LXGW WenKai TC","Noto Serif TC",serif'; g.fillText(o.name, w / 2, 503);
+      g.font = '600 19px "LXGW WenKai TC","Noto Serif TC",serif'; g.fillStyle = '#7a4a14'; g.fillText(`${o.rname}　${'★'.repeat(o.stars)}${'☆'.repeat(3 - o.stars)}`, w / 2, 532);
+      g.font = 'italic 21px "LXGW WenKai TC","Noto Serif TC",serif'; g.fillStyle = '#4a3018'; wrapText(g, `「${o.lore}」`, w / 2, 590, 350, 30);
+      g.font = '700 15px Cinzel,serif'; g.fillStyle = 'rgba(255,255,255,.85)'; g.textAlign = 'left'; g.fillText(`No.${String(o.no).padStart(2, '0')} / ${o.total}`, 30, 676); g.textAlign = 'right'; g.fillText(o.set || 'ARCANUM', w - 30, 676);
+    }
+    // 頂端寶石
+    g.save(); g.translate(w / 2, 50); g.rotate(Math.PI / 4);
+    if (metal) { g.fillStyle = '#fff'; g.fillRect(-20, -20, 40, 40); }
+    else { const gg = g.createRadialGradient(-6, -6, 2, 0, 0, 30); gg.addColorStop(0, '#fff'); gg.addColorStop(.4, GEMC[o.r]); gg.addColorStop(1, '#000'); g.fillStyle = gg; g.fillRect(-20, -20, 40, 40); g.strokeStyle = l; g.lineWidth = 3; g.strokeRect(-20, -20, 40, 40); }
+    g.restore();
+    // 卡窗挖空
+    g.globalCompositeOperation = 'destination-out'; rrect(g, WIN.x, WIN.y, WIN.w, WIN.h, 12); g.fill(); g.globalCompositeOperation = 'source-over';
+    if (!metal) { g.strokeStyle = l; g.lineWidth = 4; rrect(g, WIN.x - 3, WIN.y - 3, WIN.w + 6, WIN.h + 6, 14); g.stroke(); g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 2; rrect(g, WIN.x - 8, WIN.y - 8, WIN.w + 16, WIN.h + 16, 18); g.stroke(); }
+  });
+}
+function cardArt(o) {
+  return ctex(512, 512, (g, w) => {
+    const c = w / 2, bg = g.createRadialGradient(c, c * .85, 10, c, c, c * 1.1); bg.addColorStop(0, `hsl(${o.hue},65%,46%)`); bg.addColorStop(.45, `hsl(${o.hue},60%,24%)`); bg.addColorStop(1, `hsl(${o.hue},55%,6%)`);
+    g.fillStyle = bg; g.fillRect(0, 0, w, w);
+    g.save(); g.translate(c, c * .9); g.globalAlpha = .12; g.fillStyle = '#fff'; for (let i = 0; i < 18; i++) { g.rotate(Math.PI * 2 / 18); g.beginPath(); g.moveTo(0, 0); g.lineTo(-18, -w); g.lineTo(18, -w); g.fill(); } g.restore();
+    g.strokeStyle = `hsla(${o.hue},90%,85%,.35)`; g.lineWidth = 2; for (const r of [150, 170, 210]) { g.beginPath(); g.arc(c, c * .9, r, 0, 7); g.stroke(); }
+    for (let i = 0; i < 24; i++) { const a = i / 24 * Math.PI * 2; g.beginPath(); g.moveTo(c + Math.cos(a) * 172, c * .9 + Math.sin(a) * 172); g.lineTo(c + Math.cos(a) * 205, c * .9 + Math.sin(a) * 205); g.stroke(); }
+    for (let i = 0; i < 160; i++) { g.fillStyle = `rgba(255,255,255,${Math.random() * .8})`; const s = Math.random() * 2.2; g.fillRect(Math.random() * w, Math.random() * w, s, s); }
+    const mist = g.createLinearGradient(0, w * .65, 0, w); mist.addColorStop(0, 'rgba(0,0,0,0)'); mist.addColorStop(1, `hsla(${o.hue},40%,6%,.85)`); g.fillStyle = mist; g.fillRect(0, 0, w, w);
+  });
+}
+function cardEmblem(o) {
+  return ctex(512, 512, (g, w) => {
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '300px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+    g.shadowColor = `hsl(${o.hue},95%,72%)`; g.shadowBlur = 50; g.fillText(o.icon, w / 2, w / 2 + 14); g.shadowBlur = 0; g.fillText(o.icon, w / 2, w / 2 + 14);
+  });
+}
+function cardBack() {
+  return ctex(500, 700, (g, w, h) => {
+    rrect(g, 0, 0, w, h, 30); g.clip();
+    const gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, '#3a1a0c'); gr.addColorStop(.5, '#5a2a14'); gr.addColorStop(1, '#2a1208'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    g.strokeStyle = 'rgba(232,197,106,.18)'; g.lineWidth = 1;
+    for (let i = -h; i < w + h; i += 22) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i - h, h); g.stroke(); g.beginPath(); g.moveTo(i, 0); g.lineTo(i + h, h); g.stroke(); }
+    g.strokeStyle = '#e8c56a'; g.lineWidth = 8; rrect(g, 20, 20, w - 40, h - 40, 20); g.stroke(); g.lineWidth = 2; rrect(g, 36, 36, w - 72, h - 72, 14); g.stroke();
+    g.save(); g.translate(w / 2, h / 2 - 20); g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.arc(0, 0, 130, 0, 7); g.fill(); g.strokeStyle = '#e8c56a'; g.lineWidth = 4; g.stroke(); g.beginPath(); g.arc(0, 0, 112, 0, 7); g.lineWidth = 1.5; g.stroke();
+    g.fillStyle = '#f3dc9a'; g.beginPath(); for (let i = 0; i < 32; i++) { const a = i / 32 * Math.PI * 2 - Math.PI / 2, r = i % 2 ? 26 : i % 4 ? 70 : 100; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g.closePath(); g.fill(); g.restore();
+    g.fillStyle = '#f3dc9a'; g.textAlign = 'center'; g.font = '700 46px Cinzel, serif'; g.fillText('ARCANUM', w / 2, h - 110); g.font = '20px Cinzel, serif'; g.fillText('✦  ✦  ✦', w / 2, 90);
+  });
+}
+const FOIL_V = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
+const FOIL_F = `uniform sampler2D uMask; uniform vec2 uTilt; uniform float uInt, uHolo, uTime; varying vec2 vUv;
+vec3 hsv(float h){ vec3 k = clamp(abs(mod(h*6.0+vec3(0.0,4.0,2.0),6.0)-3.0)-1.0,0.0,1.0); return mix(vec3(1.0),k,.7); }
+float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
+void main(){
+  float m = texture2D(uMask, vUv).a;
+  float band = fract(vUv.x*1.2 + vUv.y*.8 + uTilt.y*1.4 + uTilt.x*.9);
+  vec3 col = mix(vec3(.85,.92,1.0) * (.55 + .45*sin(band*6.2832)), hsv(band), uHolo);
+  vec2 cell = floor(vUv*vec2(50.0,70.0)), fc = fract(vUv*vec2(50.0,70.0)) - .5; float sp = step(.982, hash(cell)) * max(0.0, sin(uTime*2.5 + hash(cell+3.0)*30.0 + uTilt.y*12.0)) * smoothstep(.45, .0, length(fc));
+  vec2 gc = vec2(.5 + uTilt.y*1.1, .55 - uTilt.x*1.1); float gl = smoothstep(.6, .0, distance(vUv, gc)) * .24;
+  float a = (uInt * (.25 + .75*pow(abs(sin(band*3.1416)), 3.0)) + sp*(uInt*2.5 + .15) + gl) * m;
+  gl_FragColor = vec4(col, a);
+}`;
+export async function inspectCard(el, o) {
+  if (!(await lib()) || !el.isConnected) return null;
+  let r; try { r = new T.WebGLRenderer({ antialias: true, alpha: true, stencil: true }); } catch (e) { return null; }
+  const W = () => el.clientWidth || 400, Hh = () => el.clientHeight || 560;
+  r.setPixelRatio(Math.min(devicePixelRatio || 1, 2)); r.setSize(W(), Hh()); r.toneMapping = T.ACESFilmicToneMapping; r.toneMappingExposure = 1.1; el.appendChild(r.domElement);
+  const scene = new T.Scene(), cam = new T.PerspectiveCamera(30, W() / Hh(), .1, 60); cam.position.set(0, 0, 8.2);
+  const pm = new T.PMREMGenerator(r); scene.environment = pm.fromScene(new Room(), .04).texture;
+  const key = new T.DirectionalLight(0xfff2d8, 2.2); key.position.set(2.5, 3, 5); scene.add(key, new T.AmbientLight(0xffffff, .5));
+  const g = new T.Group(); scene.add(g);
+  const A = CW / 500, ww = WIN.w * A, wh = WIN.h * A, wx = (WIN.x + WIN.w / 2 - 250) * A, wy = (350 - (WIN.y + WIN.h / 2)) * A;
+  // 卡身側邊（圓角）
+  const sh = new T.Shape(), rc = .2;
+  sh.moveTo(-CW / 2 + rc, -CH / 2); sh.lineTo(CW / 2 - rc, -CH / 2); sh.quadraticCurveTo(CW / 2, -CH / 2, CW / 2, -CH / 2 + rc); sh.lineTo(CW / 2, CH / 2 - rc); sh.quadraticCurveTo(CW / 2, CH / 2, CW / 2 - rc, CH / 2);
+  sh.lineTo(-CW / 2 + rc, CH / 2); sh.quadraticCurveTo(-CW / 2, CH / 2, -CW / 2, CH / 2 - rc); sh.lineTo(-CW / 2, -CH / 2 + rc); sh.quadraticCurveTo(-CW / 2, -CH / 2, -CW / 2 + rc, -CH / 2);
+  const eg = new T.ExtrudeGeometry(sh, { depth: .05, bevelEnabled: false, curveSegments: 6 }); eg.translate(0, 0, -.025);
+  g.add(new T.Mesh(eg, [new T.MeshBasicMaterial({ visible: false }), metal(new T.Color(PAL[o.r][1]).getHex(), .3)]));
+  // 卡窗：用模板緩衝只在窗內畫出後方的圖層，轉動時有深度感
+  const mask = new T.Mesh(new T.PlaneGeometry(ww, wh), new T.MeshBasicMaterial({ colorWrite: false, depthWrite: false, transparent: true, stencilWrite: true, stencilRef: 1, stencilFunc: T.AlwaysStencilFunc, stencilZPass: T.ReplaceStencilOp }));
+  mask.position.set(wx, wy, .026); mask.renderOrder = 1; g.add(mask);
+  const inWin = m => Object.assign(m, { transparent: true, stencilWrite: true, stencilRef: 1, stencilFunc: T.EqualStencilFunc, stencilFail: T.KeepStencilOp, stencilZFail: T.KeepStencilOp, stencilZPass: T.KeepStencilOp });
+  const art = new T.Mesh(new T.PlaneGeometry(ww * 1.7, ww * 1.7), inWin(new T.MeshBasicMaterial({ map: cardArt(o), depthWrite: false })));
+  art.position.set(wx, wy, -.42); art.renderOrder = 2; g.add(art);
+  const pop = o.r === 'l', em = new T.Mesh(new T.PlaneGeometry(ww * .92, ww * .92), new T.MeshBasicMaterial({ map: cardEmblem(o), transparent: true, depthWrite: false }));
+  if (!pop) inWin(em.material);
+  em.position.set(wx, wy - .05, pop ? .2 : o.r === 'e' ? -.04 : -.16); em.renderOrder = 3; g.add(em);
+  if (o.r === 'e' || pop) { const gl = glow(new T.Color(`hsl(${o.hue},90%,60%)`).getHex(), ww * 1.05, pop ? .28 : .35); gl.position.copy(em.position).setZ(em.position.z - .05); if (!pop) inWin(gl.material); gl.renderOrder = 2; g.add(gl); }
+  // 卡框（金屬感）與背面
+  const front = new T.Mesh(new T.PlaneGeometry(CW, CH), new T.MeshStandardMaterial({ map: cardFront(o), metalnessMap: cardFront(o, true), metalness: .7, roughness: .32, alphaTest: .5, envMapIntensity: 1.3 }));
+  front.position.z = .026; g.add(front);
+  const back = new T.Mesh(new T.PlaneGeometry(CW, CH), new T.MeshStandardMaterial({ map: cardBack(), metalness: .35, roughness: .4, alphaTest: .5 }));
+  back.position.z = -.026; back.rotation.y = Math.PI; g.add(back);
+  // 光澤與閃卡彩虹
+  const shapeMask = ctex(250, 350, (c, w, h) => { c.fillStyle = '#fff'; rrect(c, 0, 0, w, h, 15); c.fill(); });
+  const foil = new T.ShaderMaterial({ vertexShader: FOIL_V, fragmentShader: FOIL_F, transparent: true, depthWrite: false, blending: T.AdditiveBlending,
+    uniforms: { uMask: { value: shapeMask }, uTilt: { value: new T.Vector2() }, uTime: { value: 0 }, uInt: { value: { c: 0, r: .1, e: .14, l: .18 }[o.r] + (o.stars >= 3 ? .08 : 0) }, uHolo: { value: o.stars >= 3 ? 1 : o.r === 'l' ? .55 : o.r === 'e' ? .35 : 0 } } });
+  const fp = new T.Mesh(new T.PlaneGeometry(CW, CH), foil); fp.position.z = .03; fp.renderOrder = 5; g.add(fp);
+  // 史詩以上的卡牌周圍有漂浮光點
+  const motes = [];
+  if (o.r === 'e' || pop) for (let i = 0; i < 14; i++) { const s = glow(new T.Color(`hsl(${o.hue + i * 9},90%,75%)`).getHex(), .12 + Math.random() * .1, .9); s.userData.p = [Math.random() * 6.28, .6 + Math.random() * .6, Math.random() * 6.28]; g.add(s); motes.push(s); }
+  // 操作：拖曳旋轉，放開後回正到最近的一面；滑鼠移動時微微傾斜
+  let rx = 0, ry = 0, vx = 0, vy = 0, base = 0, hx = 0, hy = 0, drag = null, idle = 9, dead = false, enter = 0;
+  const cv = r.domElement; cv.style.touchAction = 'none';
+  const pd = e => { drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); idle = 0; };
+  const pmv = e => { const b = cv.getBoundingClientRect(); hx = ((e.clientY - b.top) / b.height - .5) * .5; hy = ((e.clientX - b.left) / b.width - .5) * .7;
+    if (!drag) return; vy = (e.clientX - drag.x) * .012; vx = (e.clientY - drag.y) * .01; ry += vy; rx = Math.max(-1, Math.min(1, rx + vx)); drag = { x: e.clientX, y: e.clientY }; idle = 0; };
+  const pu = () => { if (drag) base = Math.round((ry + vy * 8) / Math.PI) * Math.PI; drag = null; };
+  cv.addEventListener('pointerdown', pd); cv.addEventListener('pointermove', pmv); cv.addEventListener('pointerup', pu); cv.addEventListener('pointercancel', pu);
+  const onR = () => { r.setSize(W(), Hh()); cam.aspect = W() / Hh(); cam.updateProjectionMatrix(); }; addEventListener('resize', onR);
+  const t0 = performance.now(); let prev = t0;
+  function loop(now) {
+    if (dead) return; if (!el.isConnected) return dispose();
+    const t = (now - t0) / 1000, dt = Math.min(.05, (now - prev) / 1000); prev = now; idle += dt; enter = Math.min(1, enter + dt * 1.6);
+    if (!drag) {
+      ry += vy; vy *= .9; rx += vx; vx *= .9;
+      if (idle > .6) { const k = Math.min(1, dt * 3.5); ry += (base + hy + Math.sin(t * .6) * .16 - ry) * k; rx += (hx + Math.sin(t * .8) * .06 - rx) * k; }
+    }
+    const e = 1 - Math.pow(1 - enter, 3);
+    g.rotation.set(rx, ry + (1 - e) * 2.4, (1 - e) * -.3); g.position.y = Math.sin(t * 1.2) * .06; g.scale.setScalar(.6 + e * .4);
+    foil.uniforms.uTilt.value.set(rx, ry); foil.uniforms.uTime.value = t;
+    motes.forEach((s, i) => { const [a, rad, ph] = s.userData.p; s.position.set(Math.cos(a + t * .4) * (CW * .5 + rad * .5), Math.sin(t * .5 + ph) * CH * .5, Math.sin(a + t * .4) * .6); s.material.opacity = .5 + Math.sin(t * 3 + i) * .4; });
+    r.render(scene, cam); requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  function dispose() { if (dead) return; dead = true; removeEventListener('resize', onR); pm.dispose(); disposeScene(scene); shapeMask.dispose(); r.dispose(); r.forceContextLoss && r.forceContextLoss(); cv.remove(); }
+  return { dispose, flip() { base += Math.PI; idle = 1; } };
 }
