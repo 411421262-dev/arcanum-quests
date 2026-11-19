@@ -19,7 +19,7 @@ const fresh = () => ({
   cards: {}, ach: {}, timer: null, sound: true, world: { day: '', coins: [], dummies: [], chest: false, kills: 0, prof: [], rings: false },
   stats: { done: 0, coinsEarned: 0, packs: 0, streak: 0, best: 0, lastDone: '', redeemed: 0, ideas: 0 },
   // 學習：專注紀錄、記憶卡、回想筆記、探索能量（進入 3D 世界的分鐘數）
-  study: { log: {}, rev: {}, goal: 60, energy: 15, gate: true, cards: [], notes: [], focusN: 0 }, focus: null,
+  study: { log: {}, rev: {}, goal: 60, energy: 15, gate: true, cards: [], notes: [], focusN: 0, exams: [], slog: {}, rlog: {}, subj: '' }, focus: null,
 });
 let S = fresh();
 try {
@@ -43,7 +43,8 @@ const price = r => Math.max(1, Math.ceil(r.cost * (1 - .05 * tal('barter'))));
 
 // ---------- UI 狀態 ----------
 let tab = 'study', filter = 'all', showDone = false;
-const draftF = { mins: 25, task: '' };
+const draftF = { mins: 25, task: '' }, draftW = { cause: '觀念不清' };
+let examSubj = '';
 const draft = { cat: 'study', diff: 'normal', daily: false };
 let obHouse = 'star';
 const app = $('#app');
@@ -136,13 +137,51 @@ function bumpStreak() {
 function addEnergy(m) { ST().energy = Math.min(180, Math.round((ST().energy + m) * 10) / 10); }
 const minsToday = () => ST().log[today()] || 0;
 const dueCards = deck => ST().cards.filter(c => c.due <= today() && (!deck || c.deck === deck));
+// ---------- 備考：考試、科目、錯題 ----------
+const daysTo = d => Math.round((new Date(d + 'T12:00') - new Date(today() + 'T12:00')) / 864e5);
+const lastDays = n => [...Array(n)].map((_, i) => dayOff(-i));
+const subjMins = (s, n = 7) => lastDays(n).reduce((a, d) => a + ((ST().slog[d] || {})[s] || 0), 0);
+const subjRev = (s, n = 7) => lastDays(n).reduce((a, d) => a + ((ST().rlog[d] || {})[s] || 0), 0);
+const subjTotal = s => Object.values(ST().slog).reduce((a, o) => a + (o[s] || 0), 0);
+const subjLast = s => Object.keys(ST().slog).filter(d => ST().slog[d][s]).sort().pop() || '';
+const subjects = () => [...new Set([...ST().exams.map(e => e.subject), ...ST().cards.map(c => c.deck), ...Object.values(ST().slog).flatMap(o => Object.keys(o))])].filter(x => x && x !== '未分類');
+const upcoming = () => ST().exams.filter(e => daysTo(e.date) >= 0).sort((a, b) => a.date.localeCompare(b.date));
+const isWrong = c => !!c.wrong || (c.lapses || 0) >= 2;
+const mastered = c => c.ivl >= 21;
+const hm = m => m >= 60 ? `${(m / 60).toFixed(m % 60 ? 1 : 0)} 小時` : `${Math.round(m)} 分鐘`;
+const fmtD = d => { const x = new Date(d + 'T12:00'); return `${x.getMonth() + 1}/${x.getDate()}（${'日一二三四五六'[x.getDay()]}）`; };
+const ago = d => { const n = -daysTo(d); return n <= 0 ? '今天' : n === 1 ? '昨天' : `${n} 天前`; };
+const CAUSES = ['觀念不清', '粗心', '計算錯誤', '記錯公式或單字', '題意誤解', '時間不夠', '其他'];
+const CAUSE_TIP = {
+  觀念不清: '回到課本把這個觀念重讀一次，再闔上書用自己的話解釋一遍。',
+  粗心: '寫完留兩分鐘檢查：題目要求、單位、正負號、有沒有漏答。',
+  計算錯誤: '練習時把計算過程寫完整，不要心算跳步驟。',
+  記錯公式或單字: '這類最適合記憶卡，每天把到期的卡片複習完就好。',
+  題意誤解: '讀題時把關鍵字圈起來，先確認題目真正問的是什麼。',
+  時間不夠: '用專注計時做限時練習，熟悉考試的節奏。',
+  其他: '回頭看看這幾題有沒有共同點。',
+};
+// 被冷落的科目：21 天內要考，但這週花的時間明顯比其他要考的科目少
+function neglected() {
+  const subs = [...new Set(upcoming().filter(e => e.subject && daysTo(e.date) <= 21).map(e => e.subject))];
+  if (subs.length < 1) return [];
+  const m = subs.map(x => [x, subjMins(x)]), avg = m.reduce((a, [, v]) => a + v, 0) / m.length;
+  return m.filter(([, v]) => v === 0 || v < avg * .5).map(([x]) => x);
+}
+// 今天建議先讀的科目：考試越近、這週讀得越少，越優先
+function suggestSubj() {
+  const ex = upcoming().filter(e => e.subject); if (!ex.length) return null;
+  const score = e => daysTo(e.date) + subjMins(e.subject) / 60 * 1.5;
+  return ex.slice().sort((a, b) => score(a) - score(b))[0];
+}
 const mmss = ms => { const x = Math.max(0, Math.ceil(ms / 1000)); return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
 
 // ---------- 專注計時 ----------
 let wake = null;
-function startFocus() {
+function startFocus(o = {}) {
   if (S.focus) return showFocus();
-  S.focus = { start: Date.now(), end: Date.now() + draftF.mins * 60000, mins: draftF.mins, taskId: draftF.task }; save();
+  const subj = (o.subj ?? $('#fc-subj')?.value ?? draftF.subj ?? '').trim().slice(0, 30), mins = o.mins || draftF.mins;
+  S.focus = { start: Date.now(), end: Date.now() + mins * 60000, mins, taskId: o.task ?? draftF.task, subj }; save();
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
   FX.sound('cast'); showFocus();
 }
@@ -151,7 +190,7 @@ function showFocus() {
   const t = S.tasks.find(x => x.id === S.focus.taskId), el = document.createElement('div'); el.id = 'focus';
   el.innerHTML = `<div class="fc-in"><div class="fc-lab">專注修習中</div>
     <div class="fc-ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/><circle id="fc-arc" cx="60" cy="60" r="54" pathLength="100" stroke-dasharray="100" stroke-dashoffset="0"/></svg><b id="fc-t">--:--</b></div>
-    <h3>${t ? esc(t.title) : '自由修習'}</h3>
+    <h3>${t ? esc(t.title) : S.focus.subj ? esc(S.focus.subj) : '自由修習'}</h3>${t && S.focus.subj ? `<small class="fc-sj">${esc(S.focus.subj)}</small>` : ''}
     <p class="sub">把手機放遠一點，只做這一件事。<br>離開這個畫面也不會中斷計時。</p>
     <div class="fc-btns"><button class="btn ghost sm" data-act="focus-hide">縮小</button><button class="btn sm" data-act="focus-stop">提早結束</button></div></div>`;
   document.body.appendChild(el);
@@ -164,12 +203,13 @@ function endFocus(full) {
   S.focus = null; $('#focus')?.remove(); document.title = '奧術學院 · 任務之書'; try { wake?.release(); } catch (e) { /* 忽略 */ } wake = null;
   if (mins < 5) { save(); render(); return toast('未滿 5 分鐘，這次不計入紀錄'); }
   ST().log[today()] = minsToday() + mins; ST().focusN++; bumpStreak();
+  const sk = f.subj || '未分類', so = ST().slog[today()] || (ST().slog[today()] = {}); so[sk] = (so[sk] || 0) + mins; if (f.subj) ST().subj = f.subj;
   const coins = Math.round(mins * (full ? 1.2 : .7)), gems = full && mins >= 45 ? 1 : 0, en = Math.round(mins * .4);
   addEnergy(en); const ups = grant({ coins, gems, xp: mins }); save(); render();
   FX.sound(full ? 'level' : 'coin'); if (full) FX.fireworks(3);
   try { if (full && 'Notification' in window && Notification.permission === 'granted') new Notification('專注完成', { body: `${mins} 分鐘的修習結束了，休息一下吧` }); } catch (e) { /* 忽略 */ }
   enqueue(() => overlay(`<div class="ov-card"><div class="orn"><span>${full ? '專注完成' : '提早結束'}</span></div><div class="bigicon">🕯</div>
-    <h3>${mins} 分鐘</h3>
+    <h3>${mins} 分鐘${f.subj ? `・${esc(f.subj)}` : ''}</h3>
     <div class="loot"><span>${ic('coins')} +${coins}</span><span>XP +${mins}</span>${gems ? `<span>${ic('gems')} +1</span>` : ''}<span>⚡ 探索能量 +${en} 分</span></div>
     <label class="recall">主動回想：不看資料，用自己的話寫下剛剛學到的重點（可略過）<textarea id="recall" rows="3" maxlength="600" placeholder="例如：今天弄懂了⋯"></textarea></label>
     ${t && !isDone(t) ? `<label class="chk"><input type="checkbox" id="fc-done"> 同時把任務「${esc(t.title)}」標記為完成</label>` : ''}
@@ -181,35 +221,40 @@ const IVL = { again: () => 0, hard: c => Math.max(1, Math.round(c.ivl * 1.2)), g
 const ivlText = d => d <= 0 ? '馬上再來' : d < 30 ? `${d} 天後` : d < 365 ? `${Math.round(d / 30)} 個月後` : `${(d / 365).toFixed(1)} 年後`;
 let rv = null;
 function addCard(deck, q, a) { q = q.trim(); a = a.trim(); if (!q || !a) return false; ST().cards.push({ id: uid(), deck: deck.trim() || '未分類', q: q.slice(0, 500), a: a.slice(0, 1000), due: today(), ivl: 0, ease: 2.5, reps: 0 }); return true; }
-function startReview(deck) {
-  const q = dueCards(deck).map(c => c.id); if (!q.length) return toast('目前沒有到期的記憶卡');
+// o.deck 限定科目，o.wrong 只看錯題，o.cram 考前衝刺（不限到期、不改排程）
+function startReview(o = {}) {
+  let pool = ST().cards.filter(c => (!o.deck || c.deck === o.deck) && (!o.wrong || isWrong(c)));
+  if (!o.cram) pool = pool.filter(c => c.due <= today());
+  const q = pool.map(c => c.id); if (!q.length) return toast(o.cram ? '這個範圍還沒有記憶卡' : '目前沒有到期的記憶卡');
   for (let i = q.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [q[i], q[j]] = [q[j], q[i]]; }
-  rv = { queue: q, shown: false, n: 0, seen: new Set() };
+  rv = { queue: q, shown: false, n: 0, seen: new Set(), cram: !!o.cram, wrong: !!o.wrong };
   const el = document.createElement('div'); el.id = 'review'; document.body.appendChild(el); drawReview();
 }
+const GRADES = () => rv && rv.cram ? [['again', '還不熟', '#d86a5a', '等一下再看一次'], ['good', '會了', '#6fbf73', '衝刺不改複習排程']]
+  : [['again', '忘了', '#d86a5a'], ['hard', '有點難', '#d8a04a'], ['good', '記得', '#6fbf73'], ['easy', '很簡單', '#5fa8d8']];
 function drawReview() {
   const el = $('#review'); if (!el || !rv) return;
   const c = ST().cards.find(x => x.id === rv.queue[0]); if (!c) { rv.queue.shift(); return rv.queue.length ? drawReview() : endReview(); }
-  el.innerHTML = `<div class="rv-in"><div class="rv-top"><span>${esc(c.deck)}</span><span>剩下 ${rv.queue.length} 張</span><button class="btn ghost sm" data-act="rv-quit">結束</button></div>
-    <div class="rv-card"><div class="rv-q">${esc(c.q)}</div>${rv.shown ? `<hr><div class="rv-a">${esc(c.a)}</div>` : ''}</div>
-    ${rv.shown ? `<div class="rv-grade">${[['again', '忘了', '#d86a5a'], ['hard', '有點難', '#d8a04a'], ['good', '記得', '#6fbf73'], ['easy', '很簡單', '#5fa8d8']].map(([k, n, col], i) => `<button data-act="rv-grade" data-g="${k}" style="--cc:${col}"><b>${n}</b><small>${ivlText(IVL[k](c))}</small><kbd>${i + 1}</kbd></button>`).join('')}</div>`
+  el.innerHTML = `<div class="rv-in"><div class="rv-top"><span>${esc(c.deck)}${rv.cram ? '・考前衝刺' : rv.wrong ? '・錯題複習' : ''}</span><span>剩下 ${rv.queue.length} 張</span><button class="btn ghost sm" data-act="rv-quit">結束</button></div>
+    <div class="rv-card"><div class="rv-q">${esc(c.q)}</div>${rv.shown ? `<hr><div class="rv-a">${esc(c.a)}</div>${c.wrong ? `<small class="rv-why">錯因：${esc(c.wrong.cause)}${c.wrong.src ? '・' + esc(c.wrong.src) : ''}</small>` : ''}` : ''}</div>
+    ${rv.shown ? `<div class="rv-grade ${rv.cram ? 'two' : ''}">${GRADES().map(([k, n, col, sub], i) => `<button data-act="rv-grade" data-g="${k}" style="--cc:${col}"><b>${n}</b><small>${sub || ivlText(IVL[k](c))}</small><kbd>${i + 1}</kbd></button>`).join('')}</div>`
       : `<p class="sub">先在心裡（或說出口）回答，再翻開答案</p><button class="btn gold big" data-act="rv-show">翻開答案 <kbd>空白鍵</kbd></button>`}</div>`;
 }
 function gradeCard(g) {
   if (!rv || !rv.shown) return; const c = ST().cards.find(x => x.id === rv.queue[0]); if (!c) return;
   const ivl = IVL[g](c); rv.queue.shift(); rv.shown = false;
-  if (!rv.seen.has(c.id)) { rv.seen.add(c.id); rv.n++; }
-  if (g === 'again') { c.reps = 0; c.ivl = 0; c.ease = Math.max(1.3, c.ease - .2); c.lapses = (c.lapses || 0) + 1; rv.queue.push(c.id); }
-  else { c.ease = Math.max(1.3, c.ease + (g === 'hard' ? -.15 : g === 'easy' ? .15 : 0)); c.ivl = ivl; c.reps++; c.due = dayOff(ivl); }
+  if (!rv.seen.has(c.id)) { rv.seen.add(c.id); rv.n++; const o = ST().rlog[today()] || (ST().rlog[today()] = {}); o[c.deck] = (o[c.deck] || 0) + 1; }
+  if (g === 'again') { c.lapses = (c.lapses || 0) + 1; rv.queue.push(c.id); if (!rv.cram) { c.reps = 0; c.ivl = 0; c.ease = Math.max(1.3, c.ease - .2); } }
+  else if (!rv.cram) { c.ease = Math.max(1.3, c.ease + (g === 'hard' ? -.15 : g === 'easy' ? .15 : 0)); c.ivl = ivl; c.reps++; c.due = dayOff(ivl); }
   save(); FX.sound(g === 'again' ? 'deny' : 'flip'); rv.queue.length ? drawReview() : endReview();
 }
 function endReview() {
-  const n = rv ? rv.n : 0; rv = null; $('#review')?.remove(); if (!n) return render();
+  const n = rv ? rv.n : 0, cram = rv && rv.cram; rv = null; $('#review')?.remove(); if (!n) return render();
   ST().rev[today()] = (ST().rev[today()] || 0) + n; bumpStreak();
-  const coins = n * 2, en = Math.round(n * .5); addEnergy(en); const ups = grant({ coins, xp: n * 2 }); save(); render(); FX.sound('rare');
+  const coins = n * (cram ? 1 : 2), en = Math.round(n * (cram ? .25 : .5)); addEnergy(en); const ups = grant({ coins, xp: n * 2 }); save(); render(); FX.sound('rare');
   enqueue(() => overlay(`<div class="ov-card"><div class="orn"><span>複習完成</span></div><div class="bigicon">🧠</div><h3>${n} 張記憶卡</h3>
     <div class="loot"><span>${ic('coins')} +${coins}</span><span>XP +${n * 2}</span><span>⚡ 探索能量 +${en} 分</span></div>
-    <p class="sub">答不出來的卡片會更快再出現，記得的會隔更久。</p><button class="btn gold" data-act="ov-close">收下</button></div>`).then(() => { render(); ups.forEach(l => enqueue(() => levelUp(l).then(render))); checkAch(); }));
+    <p class="sub">${cram ? '考前衝刺不會改變複習排程，到期的卡片還是會照常出現。' : '答不出來的卡片會更快再出現，記得的會隔更久。'}</p><button class="btn gold" data-act="ov-close">收下</button></div>`).then(() => { render(); ups.forEach(l => enqueue(() => levelUp(l).then(render))); checkAch(); }));
 }
 
 // ---------- 任務 ----------
@@ -339,7 +384,7 @@ function openPack(pid, btn) {
 }
 
 // ---------- 畫面 ----------
-const TABS = [['study', '修習', '🕯'], ['quests', '任務', '📜'], ['world', '世界', '🏰'], ['shop', '獎勵', '🏪'], ['cards', '卡牌', '🎴'], ['ach', '挑戰', '🏆'], ['profile', '檔案', '🧙']];
+const TABS = [['study', '修習', '🕯'], ['exam', '備考', '📅'], ['quests', '任務', '📜'], ['world', '世界', '🏰'], ['shop', '獎勵', '🏪'], ['cards', '卡牌', '🎴'], ['ach', '挑戰', '🏆'], ['profile', '檔案', '🧙']];
 // 標題：第一個字做成彩飾首字
 const orn = t => `<h2 class="orn"><span><b class="cap"><i>${t[0]}</i></b>${t.slice(1)}</span></h2>`;
 
@@ -404,8 +449,11 @@ function vStudy() {
   const days = [...Array(7)].map((_, i) => dayOff(i - 6)), mx = Math.max(st.goal, ...days.map(d => st.log[d] || 0));
   const decks = [...new Set(st.cards.map(c => c.deck))];
   const next = !mins && due ? 'cards' : mins < st.goal ? 'focus' : due ? 'cards' : 'rest';
+  const up = upcoming(), ne = up[0], sug = suggestSubj(), fs = draftF.subj ?? sug?.subject ?? st.subj ?? '', wDue = st.cards.filter(c => isWrong(c) && c.due <= today()).length;
+  const sugTxt = sug ? `建議先讀「<b class="gold-t">${esc(sug.subject)}</b>」：距離考試 ${daysTo(sug.date)} 天，這週讀了 ${hm(subjMins(sug.subject))}。` : '選一件事，開始專注。';
   return `${orn('今日修習')}
-  <p class="lead c">${next === 'cards' ? `先花幾分鐘複習 <b class="gold-t">${due}</b> 張到期的記憶卡，再開始今天的專注。` : next === 'focus' ? `今天還差 <b class="gold-t">${st.goal - mins}</b> 分鐘達成目標。選一件事，開始專注。` : next === 'rest' ? '今天的目標已經達成，可以放心去探索世界或兌換獎勵了。' : ''}</p>
+  ${ne ? `<button class="exam-strip" data-act="tab" data-tab="exam">📅 ${daysTo(ne.date) ? `距離「${esc(ne.name)}」還有 <b>${daysTo(ne.date)}</b> 天` : `今天就是「${esc(ne.name)}」，加油！`}${up.length > 1 ? `，之後還有 ${up.length - 1} 場考試` : ''}<span>前往備考 ›</span></button>` : ''}
+  <p class="lead c">${next === 'cards' ? `先花幾分鐘複習 <b class="gold-t">${due}</b> 張到期的記憶卡，再開始今天的專注。` : next === 'focus' ? `今天還差 <b class="gold-t">${st.goal - mins}</b> 分鐘達成目標。${sugTxt}` : next === 'rest' ? '今天的目標已經達成，可以放心去探索世界或兌換獎勵了。' : ''}</p>
   <div class="st-top">
     <div><b>${mins}<small> / ${st.goal}</small></b><small>今日專注分鐘</small><div class="bar"><i style="width:${Math.min(100, mins / st.goal * 100)}%"></i></div></div>
     <div><b>${due}</b><small>張記憶卡到期</small></div>
@@ -415,22 +463,72 @@ function vStudy() {
   <div class="week">${days.map(d => { const v = st.log[d] || 0; return `<div title="${d}：${v} 分鐘"><i style="height:${Math.round(v / mx * 100)}%" class="${v >= st.goal ? 'ok' : ''}"></i><small>${'日一二三四五六'[new Date(d + 'T12:00').getDay()]}</small></div>`; }).join('')}</div>
   <h3 class="sec">專注修習</h3>
   <div class="panel fstart">
-    <select id="fc-task"><option value="">不指定任務（自由修習）</option>${open.map(t => `<option value="${t.id}" ${draftF.task === t.id ? 'selected' : ''}>${CATS[t.cat].icon} ${esc(t.title)}</option>`).join('')}</select>
+    <div class="fs-row"><select id="fc-task"><option value="">不指定任務（自由修習）</option>${open.map(t => `<option value="${t.id}" ${draftF.task === t.id ? 'selected' : ''}>${CATS[t.cat].icon} ${esc(t.title)}</option>`).join('')}</select>
+      <input id="fc-subj" list="dl-subj" placeholder="科目（可留空）" maxlength="30" value="${esc(fs)}"><datalist id="dl-subj">${subjects().map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>
     <div class="seg">${[15, 25, 45, 60].map(m => `<button class="chip ${draftF.mins === m ? 'on' : ''}" data-act="f-mins" data-v="${m}">${m} 分鐘</button>`).join('')}</div>
     <button class="btn gold big" data-act="focus-start">🕯 ${S.focus ? '回到專注畫面' : `開始專注 ${draftF.mins} 分鐘`}</button>
     <small class="dim">完成可得 ${ic('coins')}${Math.round(draftF.mins * 1.2)}、XP ${draftF.mins}、⚡${Math.round(draftF.mins * .4)} 分鐘探索能量${draftF.mins >= 45 ? `、${ic('gems')}1` : ''}。</small>
   </div>
   <form class="add quick" id="f-quick"><div class="add-row"><input name="title" placeholder="突然想到要做的事？先記下來，回頭再處理" autocomplete="off" maxlength="120" required><button class="btn">＋ 記下</button></div></form>
   <h3 class="sec">記憶卡複習 <small>共 ${st.cards.length} 張${st.rev[today()] ? `・今天已複習 ${st.rev[today()]} 張` : ''}</small></h3>
-  ${st.cards.length ? `<div class="decks"><button class="deck all ${due ? '' : 'none'}" data-act="rv-start" data-deck=""><b>全部到期</b><span>${due} 張</span></button>${decks.map(d => { const n = dueCards(d).length; return `<button class="deck ${n ? '' : 'none'}" data-act="rv-start" data-deck="${esc(d)}"><b>${esc(d)}</b><span>${n} 張到期 / 共 ${st.cards.filter(c => c.deck === d).length}</span></button>`; }).join('')}</div>`
+  ${st.cards.length ? `<div class="decks"><button class="deck all ${due ? '' : 'none'}" data-act="rv-start" data-deck=""><b>全部到期</b><span>${due} 張</span></button>${st.cards.some(isWrong) ? `<button class="deck wrong ${wDue ? '' : 'none'}" data-act="rv-start" data-deck="" data-wrong="1"><b>錯題</b><span>${wDue} 張到期</span></button>` : ''}${decks.map(d => { const n = dueCards(d).length; return `<button class="deck ${n ? '' : 'none'}" data-act="rv-start" data-deck="${esc(d)}"><b>${esc(d)}</b><span>${n} 張到期 / 共 ${st.cards.filter(c => c.deck === d).length}</span></button>`; }).join('')}</div>`
     : `<p class="empty">還沒有記憶卡。把課本重點、單字、公式寫成「問題 → 答案」，系統會在你快忘記的時候安排複習。</p>`}
   <details class="panel" ${st.cards.length ? '' : 'open'}><summary>＋ 新增記憶卡</summary>
-    <form id="f-card" class="cform"><input name="deck" list="dl-decks" placeholder="牌組（例如：英文單字、微積分）" maxlength="30" value="${esc(draftF.deck || decks[0] || '')}"><datalist id="dl-decks">${decks.map(d => `<option value="${esc(d)}">`).join('')}</datalist>
+    <form id="f-card" class="cform"><input name="deck" list="dl-decks" placeholder="科目或牌組（例如：微積分、英文單字）" maxlength="30" value="${esc(draftF.deck || decks[0] || '')}"><datalist id="dl-decks">${decks.map(d => `<option value="${esc(d)}">`).join('')}</datalist>
       <textarea name="q" rows="2" placeholder="問題（正面）" maxlength="500"></textarea><textarea name="a" rows="2" placeholder="答案（背面）" maxlength="1000"></textarea>
       <textarea name="bulk" rows="3" placeholder="或一次貼上多張：每行一張，用「|」或 Tab 分隔問題與答案&#10;photosynthesis | 光合作用&#10;mitochondria | 粒線體"></textarea>
       <button class="btn gold">加入</button></form></details>
   ${st.cards.length ? `<details class="panel"><summary>管理記憶卡</summary><ul class="clist">${st.cards.slice(-200).reverse().map(c => `<li><div><b>${esc(c.q)}</b><small>${esc(c.a)}</small></div><span>${esc(c.deck)}<br>${c.due <= today() ? '到期' : c.due.slice(5).replace('-', '/')}</span><button class="x" data-act="del-card" data-id="${c.id}">✕</button></li>`).join('')}</ul></details>` : ''}
   ${st.notes.length ? `<h3 class="sec">回想筆記 <small>專注後寫下的重點</small></h3><ul class="ideas">${st.notes.slice(0, 12).map(x => `<li class="idea"><div class="idea-t">${esc(x.text)}</div><div class="idea-f"><small>${new Date(x.at).toLocaleDateString('zh-TW')}${x.task ? '・' + esc(x.task) : ''}</small><span><button class="btn sm ghost" data-act="del-note" data-id="${x.id}">刪除</button></span></div></li>`).join('')}</ul>` : ''}`;
+}
+
+function vExam() {
+  const st = ST(), up = upcoming(), ne = up[0], neg = neglected(), subs = subjects();
+  const past = st.exams.filter(e => daysTo(e.date) < 0).sort((a, b) => b.date.localeCompare(a.date));
+  const wrongAll = st.cards.filter(isWrong), wSubs = [...new Set(wrongAll.map(c => c.deck))], wrong = wrongAll.filter(c => !examSubj || c.deck === examSubj);
+  const wDue = wrong.filter(c => c.due <= today()).length, weekAll = lastDays(7).reduce((a, d) => a + (st.log[d] || 0), 0);
+  const examCard = e => { const n = daysTo(e.date), x = e.subject, due = dueCards(x || undefined).length, wr = x ? st.cards.filter(c => c.deck === x && isWrong(c) && !mastered(c)).length : 0;
+    return `<div class="exam ${n <= 3 ? 'hot' : n <= 7 ? 'warm' : ''}"><div class="ex-n"><b>${n || '今'}</b><small>${n ? '天後' : '天考試'}</small></div>
+      <div class="ex-b"><b>${esc(e.name)}</b><small>${fmtD(e.date)}${x ? `・${esc(x)}` : ''}${neg.includes(x) ? '<em class="neg">讀得太少</em>' : ''}</small>
+        <div class="ex-s"><span>本週專注 ${hm(x ? subjMins(x) : weekAll)}</span><span>待複習 ${due} 張</span>${x ? `<span>未掌握錯題 ${wr} 題</span>` : ''}</div>
+        <div class="ex-a"><button class="btn sm gold" data-act="ex-focus" data-s="${esc(x || '')}">🕯 專注${x ? '這科' : ''} ${draftF.mins} 分鐘</button><button class="btn sm" data-act="rv-start" data-deck="${esc(x || '')}" data-cram="1" title="不管到期日，把${x ? '這科' : ''}所有記憶卡看過一遍">⚡ 考前衝刺</button><button class="x" data-act="del-exam" data-id="${e.id}" title="刪除">✕</button></div></div></div>`; };
+  const rows = subs.map(x => ({ x, wk: subjMins(x), tot: subjTotal(x), rv: subjRev(x), cards: st.cards.filter(c => c.deck === x).length, due: dueCards(x).length, ex: up.find(e => e.subject === x), last: subjLast(x) }))
+    .sort((a, b) => (a.ex ? a.ex.date : '9') .localeCompare(b.ex ? b.ex.date : '9') || b.wk - a.wk);
+  const mx = Math.max(60, ...rows.map(r => r.wk));
+  const cc = {}; wrongAll.filter(c => c.wrong).forEach(c => { cc[c.wrong.cause] = (cc[c.wrong.cause] || 0) + 1; });
+  const ce = Object.entries(cc).sort((a, b) => b[1] - a[1]), cmx = Math.max(1, ...Object.values(cc));
+  return `${orn('考試準備')}
+  <p class="lead c">${ne ? `${daysTo(ne.date) ? `距離「<b class="gold-t">${esc(ne.name)}</b>」還有 <b class="gold-t">${daysTo(ne.date)}</b> 天。` : `今天就是「${esc(ne.name)}」，深呼吸，你準備過了。`}${neg.length ? `這週「${neg.map(esc).join('」、「')}」讀得比較少，今天可以先從這裡開始。` : up.some(e => e.subject) ? '各科的進度還算平均，繼續保持。' : ''}`
+    : '把接下來的考試加進來，這裡會幫你倒數、找出被冷落的科目，並整理錯題。'}</p>
+  <h3 class="sec">考試倒數 <small>${up.length} 場</small></h3>
+  ${up.length ? `<div class="exams">${up.map(examCard).join('')}</div>` : '<p class="empty">還沒有考試。在下面加入考試名稱、科目和日期。</p>'}
+  <details class="panel" ${up.length ? '' : 'open'}><summary>＋ 新增考試</summary>
+    <form id="f-exam" class="rform"><label class="grow">考試名稱<input name="name" placeholder="例如：微積分期中考" maxlength="40" required></label>
+      <label>科目<input name="subj" list="dl-subj" placeholder="例如：微積分" maxlength="30" class="w-l"></label>
+      <label>日期<input name="date" type="date" required min="${today()}"></label><button class="btn gold">加入</button></form>
+    <small class="dim">科目名稱和記憶卡的牌組名稱一樣時，倒數卡片會一起顯示那個牌組的複習進度。</small></details>
+  <h3 class="sec">科目分析 <small>近 7 天的專注時間</small></h3>
+  ${rows.length ? `<div class="subjs">${rows.map(r => `<div class="subj"><div class="sj-h"><b>${esc(r.x)}</b>${r.ex ? `<small>${daysTo(r.ex.date)} 天後考試</small>` : ''}${neg.includes(r.x) ? '<em class="neg">被冷落</em>' : ''}</div>
+      <div class="sj-bar"><i style="width:${r.wk / mx * 100}%"></i><span>${hm(r.wk)}</span></div>
+      <small>累計 ${hm(r.tot)}・本週複習 ${r.rv} 張・記憶卡 ${r.cards} 張（${r.due} 張到期）・${r.last ? `上次專注：${ago(r.last)}` : '還沒有專注紀錄'}</small></div>`).join('')}</div>`
+    : '<p class="empty">開始專注時填上科目，這裡就會統計每一科花了多少時間。</p>'}
+  <h3 class="sec">錯題本 <small>${wrongAll.length} 題・已掌握 ${wrongAll.filter(mastered).length} 題</small></h3>
+  <p class="lead">練習題、考卷、作業寫錯的題目記在這裡，會自動變成記憶卡，在你快忘記的時候再考你一次；複習時答錯兩次以上的記憶卡也會出現在這裡。</p>
+  <details class="panel" ${wrongAll.length ? '' : 'open'}><summary>＋ 記下一題錯題</summary>
+    <form id="f-wrong" class="cform"><div class="wf-row"><input name="subj" list="dl-subj" placeholder="科目" maxlength="30" value="${esc(draftW.subj || examSubj || ne?.subject || '')}"><input name="src" placeholder="出處（可留空，例如：第三回模擬考 第 12 題）" maxlength="60"></div>
+      <textarea name="q" rows="2" placeholder="題目（可以只寫重點）" maxlength="500" required></textarea>
+      <textarea name="a" rows="2" placeholder="正確答案或解法" maxlength="1000" required></textarea>
+      <div class="seg">錯誤原因：${CAUSES.map(k => `<button type="button" class="chip ${draftW.cause === k ? 'on' : ''}" data-act="w-cause" data-v="${k}">${k}</button>`).join('')}</div>
+      <button class="btn gold">記入錯題本</button></form></details>
+  ${ce.length ? `<div class="causes">${ce.map(([k, v]) => `<div><span>${k}</span><i style="width:${v / cmx * 100}%"></i><b>${v}</b></div>`).join('')}</div>
+    <p class="tip">最常見的錯因是「${ce[0][0]}」。${CAUSE_TIP[ce[0][0]] || ''}</p>` : ''}
+  ${wrongAll.length ? `<div class="filters">${['', ...wSubs].map(x => `<button class="chip ${examSubj === x ? 'on' : ''}" data-act="w-filter" data-v="${esc(x)}">${x ? esc(x) : '全部科目'}</button>`).join('')}</div>
+    <div class="seg wr-act"><button class="btn sm gold ${wDue ? '' : 'dis'}" data-act="rv-start" data-deck="${esc(examSubj)}" data-wrong="1">複習到期的錯題（${wDue} 題）</button><button class="btn sm" data-act="rv-start" data-deck="${esc(examSubj)}" data-wrong="1" data-cram="1">⚡ 全部錯題衝刺</button></div>
+    <ul class="wrongs">${wrong.slice().reverse().slice(0, 120).map(c => `<li class="${mastered(c) ? 'ok' : ''}"><div class="wr-q">${esc(c.q)}</div><details><summary>看答案</summary><div class="wr-a">${esc(c.a)}</div></details>
+      <div class="wr-f"><span class="tag">${esc(c.deck)}</span>${c.wrong ? `<span class="tag cause">${esc(c.wrong.cause)}</span>` : `<span class="tag cause">複習答錯 ${c.lapses} 次</span>`}${c.wrong && c.wrong.src ? `<small>${esc(c.wrong.src)}</small>` : ''}
+      <span class="wr-st">${mastered(c) ? '已掌握' : c.due <= today() ? '今天要複習' : `下次複習 ${c.due.slice(5).replace('-', '/')}`}</span><button class="x" data-act="del-card" data-id="${c.id}" title="刪除">✕</button></div></li>`).join('')}</ul>` : ''}
+  ${past.length ? `<details class="panel"><summary>已結束的考試（${past.length}）</summary><ul class="clist">${past.map(e => `<li><div><b>${esc(e.name)}</b><small>${fmtD(e.date)}${e.subject ? '・' + esc(e.subject) : ''}</small></div><input class="ex-res" data-id="${e.id}" value="${esc(e.result || '')}" placeholder="成績或心得" maxlength="40"><button class="x" data-act="del-exam" data-id="${e.id}">✕</button></li>`).join('')}</ul></details>` : ''}
+  <datalist id="dl-subj">${subs.map(x => `<option value="${esc(x)}">`).join('')}</datalist>`;
 }
 
 function vIdeas() {
@@ -569,7 +667,7 @@ function vOnboard() {
   </div><div class="ob-r"><div class="stage" id="ob3d"></div></div></div>`;
 }
 
-const views = { study: vStudy, quests: vQuests, world: vWorld, shop: vShop, cards: vCards, ach: vAch, profile: vProfile };
+const views = { study: vStudy, exam: vExam, quests: vQuests, world: vWorld, shop: vShop, cards: vCards, ach: vAch, profile: vProfile };
 function render() {
   if (!S.profile.house) {
     document.documentElement.style.setProperty('--house', HOUSES[obHouse].color);
@@ -599,7 +697,11 @@ const acts = {
     if (tx) ST().notes.unshift({ id: uid(), text: tx, at: Date.now(), task: t ? t.title : '' }); save(); $('#overlay')._close?.();
     if (fin && t) completeTask(t.id, null);
   },
-  'rv-start': el => startReview(el.dataset.deck), 'rv-show': () => { if (rv) { rv.shown = true; drawReview(); } }, 'rv-grade': el => gradeCard(el.dataset.g), 'rv-quit': () => endReview(),
+  'rv-start': el => startReview({ deck: el.dataset.deck, wrong: el.dataset.wrong === '1', cram: el.dataset.cram === '1' }),
+  'ex-focus': el => startFocus({ subj: el.dataset.s, task: '' }),
+  'del-exam': el => { const e = ST().exams.find(x => x.id === el.dataset.id); if (e && confirm(`要刪除考試「${e.name}」嗎？`)) { ST().exams = ST().exams.filter(x => x !== e); save(); render(); } },
+  'w-cause': el => { draftW.cause = el.dataset.v; el.parentNode.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === el)); },
+  'w-filter': el => { examSubj = el.dataset.v; render(); }, 'rv-show': () => { if (rv) { rv.shown = true; drawReview(); } }, 'rv-grade': el => gradeCard(el.dataset.g), 'rv-quit': () => endReview(),
   'del-card': el => { ST().cards = ST().cards.filter(c => c.id !== el.dataset.id); save(); el.closest('li').remove(); },
   'del-note': el => { ST().notes = ST().notes.filter(c => c.id !== el.dataset.id); save(); render(); },
   gate: () => { ST().gate = !ST().gate; save(); render(); },
@@ -645,6 +747,17 @@ document.addEventListener('click', e => {
 document.addEventListener('submit', e => {
   e.preventDefault(); const f = e.target, d = new FormData(f);
   if (f.id === 'f-task') { addTask(d.get('title'), { due: d.get('due') }); FX.sound('flip'); render(); $('#f-task input')?.focus(); }
+  if (f.id === 'f-exam') {
+    const name = d.get('name').trim(), date = d.get('date'); if (!name || !date) return;
+    ST().exams.push({ id: uid(), name: name.slice(0, 40), subject: (d.get('subj') || '').trim().slice(0, 30), date }); save(); FX.sound('flip'); toast(`已加入考試：${esc(name)}`); render();
+  }
+  if (f.id === 'f-wrong') {
+    const subj = (d.get('subj') || '').trim().slice(0, 30) || '未分類';
+    if (!addCard(subj, d.get('q'), d.get('a'))) return toast('請填寫題目與正確答案');
+    ST().cards[ST().cards.length - 1].wrong = { cause: draftW.cause, src: (d.get('src') || '').trim().slice(0, 60), at: Date.now() };
+    draftW.subj = subj; const ups = grant({ coins: 3, xp: 2 }); save(); FX.sound('flip');
+    toast(`已記入錯題本，也加入「${esc(subj)}」的記憶卡　${ic('coins')} +3`); render(); ups.forEach(l => enqueue(() => levelUp(l).then(render)));
+  }
   if (f.id === 'f-quick') { addTask(d.get('title')); FX.sound('flip'); toast('已記到任務之書'); render(); }
   if (f.id === 'f-card') {
     const deck = d.get('deck') || ''; let k = addCard(deck, d.get('q'), d.get('a')) ? 1 : 0;
@@ -665,7 +778,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.matches('[contenteditable]')) { e.preventDefault(); e.target.blur(); }
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.matches('#f-idea textarea')) e.target.form.requestSubmit();
   if (e.key === 'Escape') $('#overlay .btn[data-act="ov-close"]')?.click();
-  if (rv && !e.target.matches('input,textarea')) { if (!rv.shown && (e.code === 'Space' || e.key === 'Enter')) { e.preventDefault(); rv.shown = true; drawReview(); } else if (rv.shown && '1234'.includes(e.key)) gradeCard(['again', 'hard', 'good', 'easy'][e.key - 1]); }
+  if (rv && !e.target.matches('input,textarea')) { if (!rv.shown && (e.code === 'Space' || e.key === 'Enter')) { e.preventDefault(); rv.shown = true; drawReview(); } else if (rv.shown && '1234'.includes(e.key) && GRADES()[e.key - 1]) gradeCard(GRADES()[e.key - 1][0]); }
 });
 document.addEventListener('focusout', e => {
   const el = e.target;
@@ -674,7 +787,9 @@ document.addEventListener('focusout', e => {
   if (el.id === 'set-name') { const v = el.value.trim(); if (v) { S.profile.name = v; save(); render(); } }
 });
 document.addEventListener('change', e => {
-  if (e.target.id === 'fc-task') { draftF.task = e.target.value; return; }
+  if (e.target.id === 'fc-task') { draftF.task = e.target.value; const t = S.tasks.find(x => x.id === draftF.task), m = t && subjects().find(x => t.title.includes(x)); if (m) { draftF.subj = m; const i = $('#fc-subj'); if (i) i.value = m; } return; }
+  if (e.target.id === 'fc-subj') { draftF.subj = e.target.value.trim(); return; }
+  if (e.target.classList.contains('ex-res')) { const x = ST().exams.find(y => y.id === e.target.dataset.id); if (x) { x.result = e.target.value.trim().slice(0, 40); save(); toast('已記錄'); } return; }
   if (e.target.id === 'set-goal') { ST().goal = Math.max(10, Math.min(600, +e.target.value || 60)); save(); return; }
   if (e.target.id !== 'imp') return;
   const file = e.target.files[0]; if (!file) return;

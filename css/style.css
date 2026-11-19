@@ -435,3 +435,45 @@ body:has(#world) #toasts{bottom:auto;top:110px}
   .st-top{grid-template-columns:repeat(2,1fr)}.rv-q{font-size:1.22rem}.rv-grade kbd,.btn kbd{display:none}
 }
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01s!important;transition-duration:.01s!important}}
+
+/* ---------- 備考：考試倒數、科目分析、錯題本 ---------- */
+.exam-strip{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px 8px;width:100%;margin:0 0 16px;padding:10px 16px;color:var(--ink);font-size:1rem;border:1px solid rgba(150,42,27,.45);border-radius:2px;background:linear-gradient(90deg,rgba(150,42,27,.05),rgba(150,42,27,.14),rgba(150,42,27,.05));transition:.15s}
+.exam-strip:hover{background:rgba(150,42,27,.18)}.exam-strip b{font:700 1.35rem var(--fell);color:var(--rubric)}.exam-strip span{color:var(--rubric);font-weight:700;margin-left:6px}
+.exams{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
+.exam{display:flex;gap:14px;padding:14px;background:var(--panel);border:1px solid var(--line);box-shadow:inset 0 0 0 3px rgba(255,248,226,.45),inset 0 0 0 4px var(--line)}
+.exam.hot{border-color:rgba(150,42,27,.6);background:linear-gradient(90deg,rgba(150,42,27,.1),var(--panel) 40%)}
+.ex-n{flex:none;width:76px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-right:12px;border-right:1px dashed var(--line)}
+.ex-n b{font:700 2.5rem var(--fell);line-height:1}.exam.warm .ex-n b{color:var(--gilt)}.exam.hot .ex-n b{color:var(--rubric)}
+.ex-b{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}.ex-b>b{font-size:1.12rem}
+.ex-s{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:.86rem;color:var(--dim)}
+.ex-a{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:4px}.ex-a .x{margin-left:auto}
+.neg{font-style:normal;font-size:.74rem;font-weight:700;color:#fff8ec;background:#972a1b;border-radius:2px;padding:1px 7px;margin-left:8px;letter-spacing:.06em}
+.w-l{width:150px!important}
+.subjs{display:flex;flex-direction:column}
+.subj{padding:10px 4px;border-bottom:1px dashed var(--line)}
+.sj-h{display:flex;align-items:baseline;gap:10px}.sj-h b{font-size:1.1rem}
+.sj-bar{position:relative;height:20px;margin:6px 0 4px;background:rgba(70,40,15,.1);border:1px solid var(--line)}
+.sj-bar i{display:block;height:100%;min-width:2px;background:linear-gradient(90deg,#8a5f12,#e3b85a)}
+.sj-bar span{position:absolute;right:8px;top:0;font-size:.8rem;line-height:18px;font-weight:700}
+.wf-row{display:flex;gap:10px}.wf-row input:first-child{max-width:200px}
+.causes{display:grid;gap:6px;margin:16px 0 6px}
+.causes div{display:grid;grid-template-columns:8.5em 1fr 2.5em;align-items:center;gap:10px;font-size:.92rem}
+.causes i{display:block;height:11px;background:repeating-linear-gradient(135deg,rgba(150,42,27,.85) 0 2px,rgba(150,42,27,.42) 2px 5px)}
+.causes b{font-family:var(--fell);text-align:right}
+.tip{margin:8px 0 14px;padding:10px 14px;border-left:3px solid var(--rubric);background:rgba(150,42,27,.07)}
+.wr-act{margin:12px 0 0}
+.wrongs{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-top:14px}
+.wrongs li{position:relative;display:flex;flex-direction:column;gap:6px;padding:14px 14px 10px 18px;background:var(--grain),linear-gradient(170deg,#fbf3dc,#eee0bc);box-shadow:0 3px 8px rgba(70,40,15,.25),inset 3px 0 0 #972a1b}
+.wrongs li.ok{opacity:.72;box-shadow:0 3px 8px rgba(70,40,15,.2),inset 3px 0 0 #8f5f10}
+.wr-q{white-space:pre-wrap;word-break:break-word;font-weight:700}
+.wr-a{white-space:pre-wrap;word-break:break-word;color:var(--rubric);padding:4px 0}
+.wrongs summary{font-size:.84rem;font-weight:400;color:var(--dim)}
+.wr-f{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:.8rem}
+.tag{padding:0 8px;border:1px solid var(--line);border-radius:10px;font-size:.78rem;color:var(--dim)}.tag.cause{border-color:rgba(150,42,27,.5);color:var(--rubric)}
+.wr-st{margin-left:auto;color:var(--gilt);font-weight:700}
+.ex-res{max-width:200px;padding:6px 8px!important;font-size:.9rem!important}
+.fs-row{display:flex;gap:10px;width:100%;max-width:640px}.fs-row select{flex:2}.fs-row input{flex:1;min-width:0}
+.fc-sj{color:var(--gold2);letter-spacing:.2em;margin-top:-8px}
+.rv-why{display:block;color:var(--dim);font-size:.9rem}
+.rv-grade.two{grid-template-columns:repeat(2,1fr)}
+.deck.wrong{--bk:#4a1226}.deck.wrong b::before{content:'✗ ';color:#ff9a80}
